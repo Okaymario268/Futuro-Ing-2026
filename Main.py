@@ -48,11 +48,12 @@ FRAME_WIDTH   = 640
 FRAME_HEIGHT  = 480
 
 # Auto-init sequence: idle delay before launch + duration of the initial push.
-INIT_DELAY    = 2     # Seconds to wait after power-up before doing anything
+INIT_DELAY    = 0     # Seconds to wait after power-up before doing anything
 INIT_FORWARD  = 9     # Seconds to drive forward at start-up
 
 # Feature toggles - flip these back to True when wiring is complete.
-SERVO_ENABLED  = False   # Skip servo init/commands while bench-testing the motor
+MOTOR_ENABLED  = False    # Skip DC-motor init/commands (useful when only the L298N is unplugged)
+SERVO_ENABLED  = True    # Skip servo init/commands while bench-testing the motor
 CAMERA_ENABLED = False   # Skip cv2 capture/preview while bench-testing the motor
 
 # -----------------------------------------------------------------------------
@@ -61,8 +62,12 @@ CAMERA_ENABLED = False   # Skip cv2 capture/preview while bench-testing the moto
 # gpiozero's Motor class wraps the two direction pins of one H-bridge channel.
 # The ENA pin is handled separately as a PWMOutputDevice so we can vary the
 # duty cycle (= speed) independently of the direction.
-drive_motor = Motor(forward=PINS["L298N_IN1"], backward=PINS["L298N_IN2"])
-drive_pwm   = PWMOutputDevice(PINS["L298N_ENA"])
+if MOTOR_ENABLED:
+    drive_motor = Motor(forward=PINS["L298N_IN1"], backward=PINS["L298N_IN2"])
+    drive_pwm   = PWMOutputDevice(PINS["L298N_ENA"])
+else:
+    drive_motor = None
+    drive_pwm   = None
 
 # AngularServo gives a clean degrees-based interface instead of raw PWM.
 # min_pulse_width / max_pulse_width match a typical hobby servo (SG90).
@@ -90,25 +95,32 @@ else:
 # -----------------------------------------------------------------------------
 def set_speed(value):
     """Set the PWM duty cycle on the L298N enable pin (0.0 - 1.0)."""
+    if not MOTOR_ENABLED:
+        return
     drive_pwm.value = max(0.0, min(1.0, value))
 
 
 def forward(speed=DRIVE_SPEED):
     """Drive the motor forward at the given speed."""
+    if not MOTOR_ENABLED:
+        return
     drive_motor.forward()
     set_speed(speed)
 
 
 def backward(speed=DRIVE_SPEED):
     """Drive the motor in reverse."""
+    if not MOTOR_ENABLED:
+        return
     drive_motor.backward()
     set_speed(speed)
 
 
 def stop():
     """Cut power to the motor and centre the steering."""
-    drive_motor.stop()
-    set_speed(0)
+    if MOTOR_ENABLED:
+        drive_motor.stop()
+        set_speed(0)
     if SERVO_ENABLED:
         steering.angle = SERVO_CENTER
 
