@@ -225,16 +225,16 @@ void loop() { /* obstacle-avoidance / steering logic */ }
 The vehicle's components — quantity, a key spec, and role. Full **sourced
 specifications** are in the collapsible block below.
 
-| Component | Qty | Key spec | Role in the vehicle |
-|-----------|:---:|----------|---------------------|
-| **Arduino UNO Q** | 1 | QRB2210 quad-A53 + STM32U585 | Main controller (Linux SBC + MCU), App Lab |
-| **L298N** dual H-bridge | 1 | 2 A/channel, up to 46 V | Motor driver for the DC drive motor |
-| **DC drive motor** | 1 | brushed, ~3–6 V | Propels the vehicle (via the L298N) |
-| **Steering servo** | 1 | PWM, 4.8–6 V, ~180° | Steers the front wheels (signal on D9) |
-| **GY-521 (MPU-6050)** | 1 | 6-axis, ±2000 °/s, I²C | Gyro heading hold (yaw) |
-| **Logitech camera** | 1 | USB UVC, 720p @ 30 fps | Computer vision (pillars & obstacles) |
-| **Battery** | 1 | 11.1 V 3S 18650, ~3800 mAh | Main power supply |
-| **Jumper cables** | as needed | Dupont, 2.54 mm pitch | Wiring between modules |
+| Component | Image | Qty | Key spec | Role |
+|-----------|:-----:|:---:|----------|------|
+| **Arduino UNO Q** | <img src="images/components/arduino-uno-q.webp" width="92" /> | 1 | QRB2210 quad-A53 + STM32U585 | Main controller (Linux SBC + MCU), App Lab |
+| **L298N** dual H-bridge | <img src="images/components/l298n.png" width="92" /> | 1 | 2 A/channel, up to 46 V | Motor driver for the DC drive motor |
+| **DC drive motor** | <img src="images/components/dc-motor.png" width="92" /> | 1 | brushed, ~3–6 V | Propels the vehicle (via the L298N) |
+| **Steering servo** | <img src="images/components/servo.png" width="92" /> | 1 | PWM, 4.8–6 V, ~180° | Steers the front wheels (signal on D9) |
+| **GY-521 (MPU-6050)** | <img src="images/components/gy-521.jpeg" width="92" /> | 1 | 6-axis, ±2000 °/s, I²C | Gyro heading hold (yaw) |
+| **Logitech camera** | <img src="images/components/camera.jpg" width="92" /> | 1 | USB UVC, 720p @ 30 fps | Computer vision (pillars & obstacles) |
+| **Battery** | <img src="images/components/battery.png" width="92" /> | 1 | 11.1 V 3S 18650, ~3800 mAh | Main power supply |
+| **Jumper cables** | <img src="images/components/jumpers.png" width="92" /> | as needed | Dupont, 2.54 mm pitch | Wiring between modules |
 
 <details>
 <summary><b>📋 Full component specifications (researched & sourced)</b></summary>
@@ -310,10 +310,6 @@ specifications** are in the collapsible block below.
 - Source: [Keszoox DuPont guide](https://keszoox.com/blogs/news/dupont-connector-complete-guide)
 
 </details>
-
-> [!NOTE]
-> Component photos will appear in the table once added to
-> [`images/components/`](images/components/) (filenames are listed in that folder's README).
 
 ---
 
