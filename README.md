@@ -35,6 +35,22 @@ Browser slider ──socket.io──▶ Python (Web UI brick) ──RouterBridge
 
 ---
 
+## 🔩 Materials (Bill of Materials)
+
+| Component | Qty | Role in the vehicle |
+|-----------|:---:|---------------------|
+| **Arduino UNO Q** | 1 | Main controller (Linux SBC + MCU) running Arduino App Lab |
+| **L298N** dual H-bridge | 1 | Motor driver for the DC drive motor |
+| **GY-521 (MPU-6050)** gyroscope | 1 | 6-axis gyro / accelerometer — heading hold (yaw) to drive straight & turn |
+| **Logitech camera** | 1 | USB webcam for computer vision (pillar colour & obstacle detection) |
+| **12 V battery** | 1 | Main power supply |
+| **Jumper cables** | as needed | Wiring between controller, driver, sensors and motor |
+
+> 📑 Add component datasheets / detailed specs to [`other/`](other/), and the full
+> wiring diagram to [`schemes/`](schemes/).
+
+---
+
 ## 📁 Repository structure
 
 This repo follows the **WRO Future Engineers** engineering-materials template:
