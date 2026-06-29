@@ -49,3 +49,30 @@ responsibilities between the two sides of the board.
   we kept the parts of our Raspberry Pi code that already worked.
 - Setup became much simpler — no dedicated keyboard, monitor and mouse needed to
   bring the robot up.
+
+---
+
+## Calibrating the servo with an HTML web UI
+
+When we moved to the Arduino UNO Q, the steering servo still had to be calibrated.
+The servo had been **detached from the first (Raspberry Pi) version**, so once it
+was remounted its real orientation was **unknown**.
+
+On the **first try** the control asked the servo for an angle of **−52°**, but a
+standard servo only accepts a range of **0°–180°**. That command was therefore out
+of range, and the servo could not reach the requested position.
+
+To fix this we built a small **web control (HTML Web UI)** that drives the servo
+through the **Arduino UNO Q's internal protocol** (RouterBridge RPC). The page
+([`src/assets/index.html`](../src/assets/index.html)) shows a **slider** that lets
+us sweep the servo across its range and read back the angle that is actually
+applied — so we could find the true limits and the real centre **by measuring,
+instead of guessing**.
+
+### Calibration results
+
+- The servo's orientation was off by roughly **270°** compared to what we expected.
+- The calibration showed that the **centre (straight-ahead) position is 79°**.
+
+These measured values are now used as the reference angles for steering in the
+control code.
