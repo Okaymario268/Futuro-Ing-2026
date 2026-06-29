@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 320" role="img" aria-label="Robot photo coming soon">
+  <rect width="1000" height="320" rx="18" fill="#0b1020"/>
+  <g transform="translate(450,84)">
+    <rect x="0" y="0" width="100" height="80" rx="10" fill="none" stroke="#3a4a6b" stroke-width="4"/>
+    <circle cx="28" cy="26" r="10" fill="#3a4a6b"/>
+    <path d="M8 72 L40 40 L60 60 L78 44 L92 72 Z" fill="#3a4a6b"/>
+  </g>
+  <text x="500" y="220" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700" fill="#ffffff">FuturoIng — robot photo coming soon</text>
+  <text x="500" y="252" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="15" fill="#9aa7bd">Robotech La Salle · WRO 2026 Future Engineers · Panamá</text>
+  <rect x="0" y="312" width="250" height="8" fill="#072357"/>
+  <rect x="250" y="312" width="250" height="8" fill="#ffffff"/>
+  <rect x="500" y="312" width="250" height="8" fill="#d21034"/>
+  <rect x="750" y="312" width="250" height="8" fill="#ffffff"/>
+</svg>

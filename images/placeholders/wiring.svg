@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 400" role="img" aria-label="Wiring diagram coming soon">
+  <rect width="700" height="400" rx="16" fill="#f5f7fb" stroke="#d8deea" stroke-width="2"/>
+  <g transform="translate(300,82)">
+    <rect x="0" y="0" width="100" height="80" rx="8" fill="none" stroke="#9aa7bd" stroke-width="4"/>
+    <circle cx="28" cy="26" r="10" fill="#9aa7bd"/>
+    <path d="M8 72 L40 40 L60 60 L78 44 L92 72 Z" fill="#9aa7bd"/>
+  </g>
+  <text x="350" y="232" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700" fill="#072357">Wiring diagram coming soon</text>
+  <text x="350" y="266" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="15" fill="#5b6478">Add the schematic to schemes/ and it appears here</text>
+  <rect x="0" y="392" width="175" height="8" fill="#072357"/>
+  <rect x="175" y="392" width="175" height="8" fill="#ffffff"/>
+  <rect x="350" y="392" width="175" height="8" fill="#d21034"/>
+  <rect x="525" y="392" width="175" height="8" fill="#ffffff"/>
+</svg>
