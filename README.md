@@ -233,15 +233,3 @@ void loop() {
 ```
 
 </details>
-
----
-
-<div align="center">
-
-<img src="images/panama-flag.png" alt="Panamá" width="70" />
-
-<br>
-
-<sub>Made with ❤️ by the <b>FuturoIng</b> team · <b>La Salle</b>, Panamá 🇵🇦 · WRO 2026</sub>
-
-</div>
