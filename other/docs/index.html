@@ -41,16 +41,16 @@
 
     <section class="wrap">
       <h2 class="section-title">Materials</h2>
-      <p class="lead">Core electronics and components used to build the vehicle.</p>
+      <p class="lead">Core components with key specifications. Items marked <em>representative</em> are typical for that class of part — confirm against the real hardware.</p>
       <div class="grid">
-        <div class="card"><div class="ico">🧠</div><h3>Arduino UNO Q</h3><p>Main controller (Linux SBC + MCU) running Arduino App Lab.</p></div>
-        <div class="card"><div class="ico">⚙️</div><h3>L298N driver</h3><p>Dual H-bridge that powers the DC drive motor.</p></div>
-        <div class="card"><div class="ico">🔁</div><h3>DC drive motor</h3><p>Propels the vehicle; powered through the L298N.</p></div>
-        <div class="card"><div class="ico">🕹️</div><h3>Steering servo</h3><p>Steers the front wheels — signal on D9.</p></div>
-        <div class="card"><div class="ico">🧭</div><h3>GY-521 (MPU-6050)</h3><p>6-axis gyroscope for heading hold — drive straight &amp; turn.</p></div>
-        <div class="card"><div class="ico">📷</div><h3>Logitech camera</h3><p>USB webcam for pillar colour &amp; obstacle detection.</p></div>
-        <div class="card"><div class="ico">🔋</div><h3>12 V battery</h3><p>Main power supply for the motors and board.</p></div>
-        <div class="card"><div class="ico">🔌</div><h3>Jumper cables</h3><p>Wiring between controller, driver, sensors and motor.</p></div>
+        <div class="card"><div class="ico">🧠</div><h3>Arduino UNO Q</h3><p>Main controller (Linux SBC + MCU) running Arduino App Lab.</p><p class="spec">QRB2210 quad-A53 · STM32U585 · Wi-Fi 5 / BT 5.1</p></div>
+        <div class="card"><div class="ico">⚙️</div><h3>L298N driver</h3><p>Dual H-bridge that powers the DC drive motor.</p><p class="spec">2 A/channel · up to 46 V · dual H-bridge</p></div>
+        <div class="card"><div class="ico">🔁</div><h3>DC drive motor</h3><p>Propels the vehicle; powered through the L298N.</p><p class="spec">Brushed · ~3–6 V · gearbox · <em>representative</em></p></div>
+        <div class="card"><div class="ico">🕹️</div><h3>Steering servo</h3><p>Steers the front wheels — signal on D9.</p><p class="spec">PWM · 4.8–6 V · ~180° · ~9 g · <em>representative</em></p></div>
+        <div class="card"><div class="ico">🧭</div><h3>GY-521 (MPU-6050)</h3><p>6-axis gyroscope for heading hold — drive straight &amp; turn.</p><p class="spec">6-axis · ±2000 °/s · I²C 0x68</p></div>
+        <div class="card"><div class="ico">📷</div><h3>Logitech camera</h3><p>USB webcam for pillar colour &amp; obstacle detection.</p><p class="spec">USB UVC · 720p @ 30 fps · ~60° FOV · <em>representative</em></p></div>
+        <div class="card"><div class="ico">🔋</div><h3>11.1 V battery</h3><p>Main power supply for the motors and board.</p><p class="spec">3S 18650 Li-ion · 11.1 V · ~3800 mAh</p></div>
+        <div class="card"><div class="ico">🔌</div><h3>Jumper cables</h3><p>Wiring between controller, driver, sensors and motor.</p><p class="spec">Dupont · 2.54 mm · ~24–28 AWG</p></div>
       </div>
     </section>
 
@@ -63,7 +63,8 @@
         <li><b>video/</b> — <span>Driving-demonstration video link</span></li>
         <li><b>t-photos/</b> — <span>Team photos</span></li>
         <li><b>schemes/</b> — <span>Wiring / electronic schematics</span></li>
-        <li><b>other/</b> — <span>Other documentation</span></li>
+        <li><b>other/</b> — <span>Docs, build notes &amp; this website</span></li>
+        <li><b>images/</b> — <span>Branding &amp; reference images</span></li>
       </ul>
     </section>
 

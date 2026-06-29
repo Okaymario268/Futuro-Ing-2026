@@ -36,7 +36,7 @@
 - [🏎️ Overview](#-overview)
 - [📂 Content](#-content)
 - [🧩 Introduction](#-introduction)
-- [🔩 Bill of Materials](#-bill-of-materials)
+- [🔩 Materials & Specs](#-materials)
 - [🔌 Wiring](#-wiring)
 - [🤖 Vehicle Gallery](#-vehicle-gallery)
 - [🎥 Video](#-video)
@@ -197,22 +197,100 @@ void loop() { /* obstacle-avoidance / steering logic */ }
 
 ---
 
-## 🔩 Bill of Materials
+## 🔩 Materials
 
-| Component | Qty | Role in the vehicle |
-|-----------|:---:|---------------------|
-| **Arduino UNO Q** | 1 | Main controller (Linux SBC + MCU) running Arduino App Lab |
-| **L298N** dual H-bridge | 1 | Motor driver for the DC drive motor |
-| **DC drive motor** | 1 | Propels the vehicle — driven by the L298N |
-| **Steering servo** | 1 | Steers the front wheels (servo signal on D9) |
-| **GY-521 (MPU-6050)** gyroscope | 1 | 6-axis gyro / accelerometer — heading hold (yaw) |
-| **Logitech camera** | 1 | USB webcam for computer vision (pillar colour & obstacle detection) |
-| **12 V battery** | 1 | Main power supply |
-| **Jumper cables** | as needed | Wiring between controller, driver, sensors and motor |
+The vehicle's components — quantity, a key spec, and role. Full **sourced
+specifications** are in the collapsible block below.
+
+| Component | Qty | Key spec | Role in the vehicle |
+|-----------|:---:|----------|---------------------|
+| **Arduino UNO Q** | 1 | QRB2210 quad-A53 + STM32U585 | Main controller (Linux SBC + MCU), App Lab |
+| **L298N** dual H-bridge | 1 | 2 A/channel, up to 46 V | Motor driver for the DC drive motor |
+| **DC drive motor** | 1 | brushed, ~3–6 V | Propels the vehicle (via the L298N) |
+| **Steering servo** | 1 | PWM, 4.8–6 V, ~180° | Steers the front wheels (signal on D9) |
+| **GY-521 (MPU-6050)** | 1 | 6-axis, ±2000 °/s, I²C | Gyro heading hold (yaw) |
+| **Logitech camera** | 1 | USB UVC, 720p @ 30 fps | Computer vision (pillars & obstacles) |
+| **Battery** | 1 | 11.1 V 3S 18650, ~3800 mAh | Main power supply |
+| **Jumper cables** | as needed | Dupont, 2.54 mm pitch | Wiring between modules |
+
+<details>
+<summary><b>📋 Full component specifications (researched & sourced)</b></summary>
+
+<br>
 
 > [!NOTE]
-> Component photos will appear here once added to [`images/components/`](images/components/)
-> (filenames are listed in that folder's README).
+> Electronics specs (UNO Q, L298N, MPU-6050) are confirmed against official
+> datasheets/pages. Items tagged **representative** are typical values for that class of
+> part — the exact model isn't confirmed; verify against the real hardware.
+
+#### 🧠 Arduino UNO Q
+- **Application processor:** Qualcomm Dragonwing QRB2210 — quad-core Arm Cortex-A53 @ 2.0 GHz (runs Debian Linux)
+- **Real-time MCU:** STM32U585 — Arm Cortex-M33 @ 160 MHz, 2 MB flash, 786 kB SRAM
+- **RAM / storage:** 2 GB LPDDR4 + 16 GB eMMC (or 4 GB + 32 GB variant)
+- **Wireless:** Wi-Fi 5 (2.4/5 GHz) + Bluetooth 5.1
+- **USB / power:** USB-C (host/device, video out); 5 V @ 3 A, VIN 7–24 V
+- **I/O:** UNO headers + Qwiic; I²C/SPI/UART/PWM/CAN/ADC/GPIO; 8×13 LED matrix, 4 RGB LEDs
+- **Dimensions:** 68.85 × 53.34 mm
+- Sources: [store.arduino.cc](https://store.arduino.cc/products/uno-q) · [docs.arduino.cc](https://docs.arduino.cc/hardware/uno-q/)
+
+#### ⚙️ L298N dual H-bridge motor driver
+- **Motor supply:** up to 46 V max (typical use 5–35 V)
+- **Logic supply:** 5 V (onboard 78M05 regulator when Vs ≤ 12 V)
+- **Current:** 2 A continuous per channel (4 A total), 3 A peak (non-repetitive)
+- **Channels:** 2 full H-bridges → 2 DC motors bidirectional
+- **Based on:** STMicroelectronics L298 dual full-bridge driver
+- Sources: [ST L298 datasheet](https://www.st.com/resource/en/datasheet/l298.pdf) · [components101](https://components101.com/modules/l293n-motor-driver-module)
+
+#### 🧭 GY-521 (MPU-6050) 6-axis IMU
+- **Sensors:** 3-axis gyroscope + 3-axis accelerometer (6 DOF) + temperature
+- **Ranges:** gyro ±250/500/1000/2000 °/s; accel ±2/4/8/16 g (programmable)
+- **Interface:** I²C ≤ 400 kHz; address 0x68 (0x69 if AD0 = high)
+- **Voltage:** module 3.3–5 V (onboard regulator)
+- **DMP:** onboard Digital Motion Processor (offloads motion fusion)
+- Sources: [protosupplies](https://protosupplies.com/product/mpu-6050-gy-521-3-axis-accel-gryo-sensor-module/) · [datasheet](https://mysii.gorriens.net/images/arduino/capteurs/gy-521_mpu-6050_3-axis_gyroscope_and_acceleration_sensor_en.pdf)
+
+#### 🎚️ Steering servo &nbsp;·&nbsp; *representative (SG90-class)*
+- **Voltage:** 4.8–6 V DC
+- **Torque:** ~1.8 kg·cm @ 4.8 V → ~2.2 kg·cm @ 6 V
+- **Speed:** ~0.1 s/60°
+- **Rotation:** ~180°; **weight** ~9 g
+- **Interface:** 3-wire PWM (50 Hz, 1–2 ms pulse, 1.5 ms ≈ centre)
+- Sources: [components101](https://components101.com/motors/servo-motor-basics-pinout-datasheet) · [servodatabase](https://servodatabase.com/servo/towerpro/sg90) — *confirm exact model*
+
+#### 🔁 DC drive motor &nbsp;·&nbsp; *representative (TT/N20-class)*
+- **Type:** brushed DC motor with reduction gearbox
+- **Voltage:** ~3–6 V typical (hobby car motor)
+- **No-load RPM:** ~150–200 RPM (TT gearmotor at 5–6 V)
+- **No-load current:** ~120–180 mA
+- **Note:** the L298N drops ~2 V, so effective motor voltage is below the supply rail
+- Sources: [zbotic](https://zbotic.in/tt-gear-motor-for-robot-car-voltage-rpm-tire-matching/) · [lastminuteengineers](https://lastminuteengineers.com/l298n-dc-stepper-driver-arduino-tutorial/) — *confirm exact model*
+
+#### 📷 Logitech USB camera &nbsp;·&nbsp; *representative (C270-class)*
+- **Resolution:** 1280 × 960 (1.2 MP); video up to 720p @ 30 fps
+- **Field of view:** ~60° diagonal
+- **Connection:** USB 2.0, UVC plug-and-play (works with V4L2 / OpenCV, no vendor driver)
+- Sources: [Logitech C270 specs](https://support.logi.com/hc/en-us/articles/360023462093-Logitech-HD-Webcam-C270-Technical-Specifications) — *confirm exact model (a C920 would be 1080p / ~78° FOV)*
+
+#### 🔋 Battery — 11.1 V 3S 18650 Li-ion pack
+- **Chemistry / config:** Lithium-ion 18650, 3S (3 cells in series)
+- **Voltage:** 11.1 V nominal, 12.6 V full charge, ~9.0–9.2 V cutoff
+- **Capacity:** ~3800 mAh (≈42 Wh)
+- **Protection:** typically a BMS (over-charge / over-discharge / short)
+- **Note:** powers the L298N rail + electronics; charge with a 12.6 V 3S charger, never below cutoff
+- Sources: [Ufine](https://www.ufinebattery.com/products/11-1-v-3000mah-18650-battery-pack-18650-3s/) · [Rytronics](https://www.rytronics.in/product/11-1v-2600mah-18650-3s-1c-li-ion-battery-pack-with-bms/) — *11.1 V/3S confirmed; capacity representative*
+
+#### 🔌 Dupont jumper wires
+- **Pitch:** 2.54 mm (0.1") — matches headers/breadboards
+- **Gauge:** ~24–28 AWG stranded copper
+- **Types:** male-male, male-female, female-female; **length** ~10/20/30 cm
+- **Rating:** ~3 A per contact; friction-fit (can loosen under vibration)
+- Source: [Keszoox DuPont guide](https://keszoox.com/blogs/news/dupont-connector-complete-guide)
+
+</details>
+
+> [!NOTE]
+> Component photos will appear in the table once added to
+> [`images/components/`](images/components/) (filenames are listed in that folder's README).
 
 ---
 
