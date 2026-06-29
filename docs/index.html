@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Robotech La Salle · FuturoIng — WRO 2026</title>
+  <meta name="description" content="Robotech La Salle — FuturoIng autonomous vehicle for WRO 2026 Future Engineers. La Salle, Panamá." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header class="hero">
+    <img class="flag" src="panama-flag.png" alt="Bandera de Panamá" />
+    <h1>🤖 Robotech La Salle</h1>
+    <p class="tag">Self-Driving Vehicle · WRO 2026 — Future Engineers</p>
+    <p class="loc">FuturoIng · Panamá 🇵🇦</p>
+    <div class="pills">
+      <span class="pill">Arduino UNO Q</span>
+      <span class="pill">Python</span>
+      <span class="pill">C++</span>
+      <span class="pill">Computer Vision</span>
+      <span class="pill">MPU-6050</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="wrap">
+      <h2 class="section-title">About the project</h2>
+      <p class="lead">
+        <strong>FuturoIng</strong> is an autonomous vehicle built on the
+        <strong>Arduino UNO Q</strong> for the WRO Future Engineers challenge.
+        It steers with a servo, drives with a DC motor through an L298N driver,
+        holds a straight heading with an MPU-6050 gyroscope, and detects coloured
+        pillars with a Logitech camera.
+      </p>
+      <div class="flow">Browser slider ──socket.io──▶ Python (Web UI) ──RouterBridge RPC──▶ sketch ──▶ servo on D9</div>
+    </section>
+
+    <section class="wrap">
+      <h2 class="section-title">Materials</h2>
+      <p class="lead">Core electronics and components used to build the vehicle.</p>
+      <div class="grid">
+        <div class="card"><div class="ico">🧠</div><h3>Arduino UNO Q</h3><p>Main controller (Linux SBC + MCU) running Arduino App Lab.</p></div>
+        <div class="card"><div class="ico">⚙️</div><h3>L298N driver</h3><p>Dual H-bridge that powers the DC drive motor.</p></div>
+        <div class="card"><div class="ico">🧭</div><h3>GY-521 (MPU-6050)</h3><p>6-axis gyroscope for heading hold — drive straight &amp; turn.</p></div>
+        <div class="card"><div class="ico">📷</div><h3>Logitech camera</h3><p>USB webcam for pillar colour &amp; obstacle detection.</p></div>
+        <div class="card"><div class="ico">🔋</div><h3>12 V battery</h3><p>Main power supply for the motors and board.</p></div>
+        <div class="card"><div class="ico">🔌</div><h3>Jumper cables</h3><p>Wiring between controller, driver, sensors and motor.</p></div>
+      </div>
+    </section>
+
+    <section class="wrap">
+      <h2 class="section-title">Repository structure</h2>
+      <p class="lead">Organised to the WRO Future Engineers engineering-materials template.</p>
+      <ul class="tree">
+        <li><b>src/</b> — <span>Control software: Arduino sketch, Python Web UI, web assets</span></li>
+        <li><b>v-photos/</b> — <span>Photos of the vehicle from every side</span></li>
+        <li><b>video/</b> — <span>Driving-demonstration video link</span></li>
+        <li><b>t-photos/</b> — <span>Team photos</span></li>
+        <li><b>schemes/</b> — <span>Wiring / electronic schematics</span></li>
+        <li><b>models/</b> — <span>3D-print / laser / CNC model files</span></li>
+        <li><b>other/</b> — <span>Other documentation</span></li>
+      </ul>
+    </section>
+
+    <div class="cta">
+      <a class="btn" href="https://github.com/Okaymario268/Futuro-Ing-2026" target="_blank" rel="noopener">View on GitHub →</a>
+    </div>
+  </main>
+
+  <div class="flag-strip"></div>
+  <footer>
+    Robotech La Salle · La Salle, Panamá 🇵🇦 · WRO 2026 — Future Engineers
+  </footer>
+
+</body>
+</html>

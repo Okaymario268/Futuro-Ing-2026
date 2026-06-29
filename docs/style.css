@@ -1,0 +1,126 @@
+/* Robotech La Salle — FuturoIng · WRO 2026
+   Palette based on the flag of Panamá (navy + red + white) */
+
+:root {
+  --red:   #d21034;
+  --blue:  #072357;
+  --blue2: #0d3a86;
+  --ink:   #1c2333;
+  --muted: #5b6478;
+  --bg:    #f5f7fb;
+  --card:  #ffffff;
+  --line:  #eef1f7;
+  --shadow: 0 10px 30px rgba(7, 35, 87, .10);
+  --radius: 16px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  line-height: 1.6;
+}
+img { max-width: 100%; display: block; }
+a { color: var(--red); text-decoration: none; }
+
+/* ---------- Hero ---------- */
+.hero {
+  position: relative;
+  text-align: center;
+  color: #fff;
+  padding: 72px 20px 90px;
+  background:
+    radial-gradient(1100px 400px at 50% -120px, rgba(210, 16, 52, .35), transparent 60%),
+    linear-gradient(160deg, #061d49 0%, #0a2f6e 55%, var(--blue2) 100%);
+  overflow: hidden;
+}
+.hero::after {
+  content: "";
+  position: absolute; left: 0; right: 0; bottom: 0; height: 6px;
+  background: linear-gradient(90deg,
+    var(--blue) 0 25%, #fff 25% 50%, var(--red) 50% 75%, #fff 75% 100%);
+}
+.flag {
+  width: 160px; margin: 0 auto 22px;
+  border-radius: 8px;
+  border: 3px solid rgba(255, 255, 255, .85);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .35);
+}
+.hero h1 { font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 700; letter-spacing: .5px; }
+.hero .tag { font-size: 1.05rem; opacity: .92; margin-top: 6px; }
+.hero .loc { margin-top: 4px; font-weight: 600; opacity: .95; }
+
+.pills { margin-top: 24px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.pill {
+  background: rgba(255, 255, 255, .12);
+  border: 1px solid rgba(255, 255, 255, .28);
+  padding: 7px 16px; border-radius: 999px;
+  font-size: .85rem; font-weight: 600;
+}
+
+/* ---------- Layout ---------- */
+.wrap { max-width: 980px; margin: 0 auto; padding: 0 20px; }
+section { padding: 56px 0; }
+.section-title {
+  font-size: 1.6rem; font-weight: 700; color: var(--blue);
+  display: flex; align-items: center; gap: 12px; margin-bottom: 8px;
+}
+.section-title::before {
+  content: ""; width: 28px; height: 4px; background: var(--red); border-radius: 2px;
+}
+.lead { color: var(--muted); margin-bottom: 26px; max-width: 70ch; }
+
+/* ---------- Cards ---------- */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 18px; }
+.card {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 22px; box-shadow: var(--shadow);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.card:hover { transform: translateY(-4px); box-shadow: 0 16px 40px rgba(7, 35, 87, .16); }
+.card .ico { font-size: 1.8rem; }
+.card h3 { margin: 10px 0 4px; font-size: 1.05rem; color: var(--blue); }
+.card p { color: var(--muted); font-size: .92rem; }
+
+/* ---------- Flow diagram ---------- */
+.flow {
+  background: var(--blue); color: #cfe0ff; border-radius: var(--radius);
+  padding: 18px 20px; margin-top: 8px;
+  font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .86rem;
+  overflow-x: auto;
+}
+
+/* ---------- Structure list ---------- */
+.tree { list-style: none; display: grid; gap: 10px; }
+.tree li {
+  background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--red);
+  border-radius: 10px; padding: 12px 16px; box-shadow: var(--shadow);
+}
+.tree li b { color: var(--blue); }
+.tree li span { color: var(--muted); font-size: .9rem; }
+
+/* ---------- CTA ---------- */
+.cta { text-align: center; padding: 50px 0 60px; }
+.btn {
+  display: inline-block; background: var(--red); color: #fff; font-weight: 600;
+  padding: 14px 28px; border-radius: 999px;
+  box-shadow: 0 8px 22px rgba(210, 16, 52, .35);
+  transition: transform .15s ease, filter .15s ease;
+}
+.btn:hover { transform: translateY(-2px); filter: brightness(1.06); }
+
+/* ---------- Footer ---------- */
+.flag-strip {
+  height: 6px;
+  background: linear-gradient(90deg,
+    var(--blue) 0 25%, #fff 25% 50%, var(--red) 50% 75%, #fff 75% 100%);
+}
+footer { text-align: center; color: #fff; background: var(--blue); padding: 26px 20px; font-size: .9rem; }
+
+@media (max-width: 600px) {
+  .hero { padding: 56px 16px 72px; }
+  .flag { width: 120px; }
+  section { padding: 42px 0; }
+}
