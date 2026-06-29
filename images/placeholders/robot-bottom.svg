@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" role="img" aria-label="ROBOT · BOTTOM placeholder">
+  <rect width="600" height="400" rx="16" fill="#f5f7fb" stroke="#d8deea" stroke-width="2"/>
+  <g transform="translate(250,72)">
+    <rect x="0" y="0" width="100" height="80" rx="8" fill="none" stroke="#9aa7bd" stroke-width="4"/>
+    <circle cx="28" cy="26" r="10" fill="#9aa7bd"/>
+    <path d="M8 72 L40 40 L60 60 L78 44 L92 72 Z" fill="#9aa7bd"/>
+  </g>
+  <text x="300" y="225" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700" fill="#072357">ROBOT · BOTTOM</text>
+  <text x="300" y="262" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="16" fill="#5b6478">Placeholder — replace with a real photo</text>
+  <rect x="0" y="392" width="150" height="8" fill="#072357"/>
+  <rect x="150" y="392" width="150" height="8" fill="#ffffff"/>
+  <rect x="300" y="392" width="150" height="8" fill="#d21034"/>
+  <rect x="450" y="392" width="150" height="8" fill="#ffffff"/>
+</svg>
