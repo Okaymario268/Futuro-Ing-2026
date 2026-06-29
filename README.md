@@ -2,11 +2,11 @@
 
 <img src="images/panama-flag.png" alt="Bandera de Panamá" width="130" />
 
-<h1>🤖 FuturoIng</h1>
+<h1>🤖 Robotech La Salle</h1>
 
 <h3>Self-Driving Vehicle · WRO&nbsp;2026 — Future&nbsp;Engineers</h3>
 
-<p><b>La&nbsp;Salle</b> &nbsp;·&nbsp; <b>Panamá</b> 🇵🇦</p>
+<p><b>FuturoIng</b> &nbsp;·&nbsp; <b>Panamá</b> 🇵🇦</p>
 
 <p>
   <img src="https://img.shields.io/badge/WRO%202026-Future%20Engineers-E4002B?style=for-the-badge" alt="WRO 2026" />
