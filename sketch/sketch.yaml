@@ -1,0 +1,24 @@
+# Arduino App Lab resolves sketch (C++/MCU) libraries from THIS file —
+# NOT from the classic Arduino IDE's  ...\Documentos\Arduino\libraries\  folder.
+# That is why App Lab reported "Servo.h not detected": the dependency was simply
+# never declared for this project.
+#
+# Board: Arduino UNO Q -> MCU is STM32U585 running Zephyr -> FQBN arduino:zephyr:unoq
+# Servo gained Zephyr / UNO Q support in v1.3.0 (its architectures list includes "zephyr").
+#
+# IMPORTANT: App Lab requires the *profiles* form below. A plain
+# `default_fqbn` + top-level `libraries` file fails with:
+#   "unable to list sketch libraries: Missing Profile name".
+# Leave `fqbn:` blank — App Lab fills it from the connected UNO Q.
+# Arduino_RouterBridge (the RPC bridge) ships with the App Lab template, so it is
+# not pinned here; App Lab pulls it (and its MsgPack/DebugLog deps) in on build.
+
+profiles:
+  default:
+    fqbn:
+    platforms:
+      - platform: arduino:zephyr
+    libraries:
+      - Servo (1.3.0)
+
+default_profile: default

@@ -1,0 +1,8 @@
+# The web UI (HTTP server) is provided by the `arduino:web_ui` brick declared in
+# app.yaml, and Bridge comes from arduino.app_utils -- neither needs pip.
+#
+# The camera vision pipeline (python/vision.py) needs OpenCV + NumPy. Use the
+# *headless* OpenCV build (no GUI libs) since the board runs without a desktop.
+# If these aren't installed the app still runs; only the camera toggle is disabled.
+numpy
+opencv-python-headless

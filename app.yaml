@@ -1,0 +1,13 @@
+# Arduino App Lab app manifest.
+#
+# `arduino:web_ui` pulls in the Web UI brick, which serves assets/index.html and
+# a Socket.IO server on port 7000 (the brick manages the port; ports: [] is fine).
+# If App Lab won't open this hand-made folder, create a New App in App Lab, add the
+# "Web UI" brick + the Servo library, then paste in sketch/ , python/ and assets/.
+
+name: "FuturoIng — Servo Control"
+description: "Control a servo angle on pin D9 from a web slider on the Arduino UNO Q."
+ports: []
+bricks:
+  - arduino:web_ui: {}
+icon: 🤖

@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FuturoIng · Servo Control</title>
+  <style>
+    :root {
+      --bg: #0f1420;
+      --card: #19202e;
+      --accent: #00a3ff;
+      --accent-2: #34d399;
+      --text: #e6edf3;
+      --muted: #8b97a7;
+      --track: #2a3344;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(1200px 600px at 50% -10%, #1b2740, var(--bg));
+      color: var(--text);
+      padding: 24px;
+    }
+    .card {
+      width: 100%;
+      max-width: 440px;
+      background: var(--card);
+      border: 1px solid #232c3d;
+      border-radius: 18px;
+      padding: 28px 28px 32px;
+      box-shadow: 0 20px 50px rgba(0,0,0,.45);
+    }
+    h1 { font-size: 1.25rem; margin: 0 0 2px; }
+    .sub { color: var(--muted); font-size: .85rem; margin: 0 0 22px; }
+    .dial { display: block; margin: 0 auto 8px; }
+    .readout {
+      text-align: center;
+      font-size: 3rem;
+      font-weight: 700;
+      letter-spacing: -1px;
+      line-height: 1;
+    }
+    .readout span { font-size: 1.2rem; color: var(--muted); font-weight: 500; }
+    .slider {
+      width: 100%;
+      margin: 26px 0 6px;
+      -webkit-appearance: none;
+      appearance: none;
+      height: 8px;
+      border-radius: 6px;
+      background: var(--track);
+      outline: none;
+    }
+    .slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 3px solid #0c1018;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,163,255,.5);
+    }
+    .slider::-moz-range-thumb {
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      background: var(--accent);
+      border: 3px solid #0c1018;
+      cursor: pointer;
+    }
+    .scale { display: flex; justify-content: space-between; color: var(--muted); font-size: .75rem; }
+    .presets { display: flex; gap: 8px; margin-top: 22px; }
+    .presets button {
+      flex: 1;
+      padding: 10px 0;
+      background: #222c3d;
+      color: var(--text);
+      border: 1px solid #2f3a4d;
+      border-radius: 10px;
+      font-size: .9rem;
+      cursor: pointer;
+      transition: background .12s, transform .05s;
+    }
+    .presets button:hover { background: #2b3850; }
+    .presets button:active { transform: translateY(1px); }
+    .status {
+      margin-top: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: .8rem;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #d9534f; transition: background .2s; }
+    .dot.on { background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); }
+
+    /* Collapsible module header (e.g. the Manual servo panel) */
+    .modhead {
+      display: flex; align-items: center; justify-content: space-between;
+      margin: 8px 0 12px; padding-top: 8px; border-top: 1px solid #232c3d;
+    }
+    .modtitle { font-size: .72rem; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+    .modbtn {
+      padding: 5px 14px; border-radius: 8px; border: 1px solid #1f5630;
+      background: #16331f; color: var(--text); cursor: pointer; font-size: .78rem;
+    }
+    .modbtn.off { background: #3a1d1d; border-color: #5a2a2a; }
+    .module.collapsed { display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Servo Control</h1>
+    <p class="sub">Arduino UNO Q · servo on pin D9</p>
+
+    <!-- ===== Manual servo module (toggleable) ===== -->
+    <div class="modhead">
+      <span class="modtitle">Manual servo</span>
+      <button id="servoToggle" class="modbtn">Enabled</button>
+    </div>
+    <div id="servoPanel" class="module">
+      <svg class="dial" width="260" height="150" viewBox="0 0 260 150">
+        <path d="M 30 140 A 100 100 0 0 1 230 140" fill="none" stroke="#2a3344" stroke-width="10" stroke-linecap="round"/>
+        <line id="needle" x1="130" y1="140" x2="130" y2="45" stroke="var(--accent)" stroke-width="6" stroke-linecap="round"/>
+        <circle cx="130" cy="140" r="9" fill="var(--accent)"/>
+      </svg>
+
+      <div class="readout"><span id="value">79</span><span>&deg;</span></div>
+
+      <input id="slider" class="slider" type="range" min="0" max="180" value="79" step="1" />
+      <div class="scale"><span>0&deg;</span><span>79&deg; (center)</span><span>180&deg;</span></div>
+
+      <div class="presets">
+        <button data-angle="44">&#8592; left</button>
+        <button data-angle="79">79&deg; center</button>
+        <button data-angle="114">right &#8594;</button>
+      </div>
+    </div>
+    <!-- ===== end Manual servo module ===== -->
+
+    <!-- Gyro heading-hold (drive-straight) bench controls -->
+    <div class="presets" style="margin-top:12px;">
+      <button id="goStraight" style="background:#16331f;border-color:#1f5630;">Drive straight &#9654;</button>
+      <button id="stopBtn"    style="background:#3a1d1d;border-color:#5a2a2a;">Stop &#9632;</button>
+    </div>
+    <div class="presets" style="margin-top:8px;">
+      <button id="turnL">&#8634; Turn -90&deg;</button>
+      <button id="turnR">Turn +90&deg; &#8635;</button>
+    </div>
+    <div style="margin-top:14px;">
+      <div class="scale"><span>Drive speed (L298N)</span><span id="speedVal">100%</span></div>
+      <input id="speed" class="slider" type="range" min="0" max="100" value="100" step="5" />
+    </div>
+    <!-- Independent subsystem toggles: motor / steering / pillar are separate -->
+    <div class="presets" style="margin-top:12px;">
+      <button id="motorBtn">Motor: OFF</button>
+      <button id="steerBtn">Steering: OFF</button>
+    </div>
+    <div class="presets" style="margin-top:8px;">
+      <button id="camBtn" style="background:#1b2740;border-color:#2a3a5a;">Camera: OFF</button>
+    </div>
+    <div class="presets" style="margin-top:8px;">
+      <button id="wallBtn">Corners (walls): ON</button>
+      <button id="pillarBtn">Pillar: ON</button>
+    </div>
+    <div class="status" style="margin-top:8px;">
+      <span>Vision:&nbsp;</span><strong id="visionNote">&mdash;</strong>
+    </div>
+    <div class="status" style="margin-top:14px;">
+      <span>Heading:&nbsp;</span><strong id="headingVal">&mdash;</strong><span>&deg;</span>
+      <span style="margin-left:14px;">Target:&nbsp;</span><strong id="targetVal">&mdash;</strong><span>&deg;</span>
+      <span style="margin-left:auto;">Steer:&nbsp;</span><strong id="steerVal">&mdash;</strong><span>&deg;</span>
+    </div>
+
+    <div class="status"><span id="dot" class="dot"></span><span id="statusText">Connecting…</span></div>
+  </div>
+
+  <script>
+    // Plain REST (fetch) — this Web UI brick does not serve a Socket.IO client.
+    const slider   = document.getElementById("slider");
+    const valueEl  = document.getElementById("value");
+    const needle   = document.getElementById("needle");
+    const dot      = document.getElementById("dot");
+    const statusEl = document.getElementById("statusText");
+
+    const CX = 130, CY = 140, LEN = 95;
+
+    function render(angle) {
+      angle = Math.max(0, Math.min(180, Math.round(angle)));
+      valueEl.textContent = angle;
+      if (Number(slider.value) !== angle) slider.value = angle;
+      // servo 0 -> needle points left, 180 -> right
+      const theta = (180 - angle) * Math.PI / 180;
+      needle.setAttribute("x2", (CX + LEN * Math.cos(theta)).toFixed(1));
+      needle.setAttribute("y2", (CY - LEN * Math.sin(theta)).toFixed(1));
+    }
+
+    function setStatus(ok) {
+      dot.classList.toggle("on", ok);
+      statusEl.textContent = ok ? "Connected" : "Disconnected";
+    }
+
+    async function postAngle(angle) {
+      try {
+        const r = await fetch("/api/angle?angle=" + angle, { cache: "no-store" });
+        const d = await r.json();
+        if (d && typeof d.angle === "number") render(d.angle);
+        setStatus(true);
+      } catch (e) {
+        setStatus(false);
+      }
+    }
+
+    // Throttle outbound requests while dragging; always send the final value.
+    let pending = null, lastSent = 0;
+    function sendAngle(angle) {
+      render(angle);                       // update UI immediately
+      const now = Date.now();
+      if (now - lastSent >= 60) {
+        lastSent = now;
+        postAngle(angle);
+      } else {
+        clearTimeout(pending);
+        pending = setTimeout(() => { lastSent = Date.now(); postAngle(angle); }, 60);
+      }
+    }
+
+    slider.addEventListener("input", e => sendAngle(Number(e.target.value)));
+    // Scope to the manual servo module so it doesn't catch the drive/camera buttons.
+    document.querySelectorAll("#servoPanel .presets button").forEach(btn =>
+      btn.addEventListener("click", () => sendAngle(Number(btn.dataset.angle)))
+    );
+
+    // Manual servo module: enable/disable (front-end). When disabled the whole
+    // panel collapses so it can't be nudged during an autonomous run.
+    const servoToggle = document.getElementById("servoToggle");
+    const servoPanel  = document.getElementById("servoPanel");
+    let servoOn = true;
+    function paintServo() {
+      servoToggle.textContent = servoOn ? "Enabled" : "Disabled";
+      servoToggle.classList.toggle("off", !servoOn);
+      servoPanel.classList.toggle("collapsed", !servoOn);
+    }
+    servoToggle.addEventListener("click", () => { servoOn = !servoOn; paintServo(); });
+    paintServo();
+
+    // Sync the slider to the servo's current angle on load.
+    (async function init() {
+      try {
+        const r = await fetch("/api/state", { cache: "no-store" });
+        const d = await r.json();
+        if (d && typeof d.angle === "number") render(d.angle);
+        setStatus(true);
+      } catch (e) {
+        setStatus(false);
+        render(79);
+      }
+    })();
+
+    // --- Gyro heading-hold bench controls -------------------------------
+    const headingVal = document.getElementById("headingVal");
+    const targetVal  = document.getElementById("targetVal");
+    const steerVal   = document.getElementById("steerVal");
+    let headingTimer = null;
+
+    async function pollHeading() {
+      try {
+        const r = await fetch("/api/heading", { cache: "no-store" });
+        const d = await r.json();
+        if (d) {
+          if (typeof d.heading === "number") headingVal.textContent = d.heading;
+          if (typeof d.target  === "number") targetVal.textContent  = d.target;
+          if (typeof d.steer   === "number") { steerVal.textContent = d.steer; render(d.steer); }
+        }
+        setStatus(true);
+      } catch (e) { setStatus(false); }
+    }
+    function startPolling() { clearInterval(headingTimer); headingTimer = setInterval(pollHeading, 200); }
+
+    async function hit(url) {
+      try { await fetch(url, { cache: "no-store" }); setStatus(true); } catch (e) { setStatus(false); }
+    }
+
+    document.getElementById("goStraight").addEventListener("click", async () => { await hit("/api/straight"); document.getElementById("speed").value = 100; document.getElementById("speedVal").textContent = "100%"; reflectRunState(true); startPolling(); });
+    document.getElementById("turnL").addEventListener("click",     () => hit("/api/turn?deg=-90"));
+    document.getElementById("turnR").addEventListener("click",     () => hit("/api/turn?deg=90"));
+
+    const speed = document.getElementById("speed");
+    const speedValEl = document.getElementById("speedVal");
+    speed.addEventListener("input", e => {
+      const pct = Number(e.target.value);
+      speedValEl.textContent = pct + "%";
+      hit("/api/speed?pct=" + pct);
+    });
+
+    // Camera toggle + live vision note.
+    const camBtn = document.getElementById("camBtn");
+    const visionNote = document.getElementById("visionNote");
+    let camOn = false, visionTimer = null;
+
+    async function pollVision() {
+      try {
+        const r = await fetch("/api/vision", { cache: "no-store" });
+        const d = await r.json();
+        if (d && d.note) {
+          visionNote.textContent = d.note;
+          if (typeof d.speed_pct === "number") { speed.value = d.speed_pct; speedValEl.textContent = d.speed_pct + "%"; }
+        }
+      } catch (e) { /* leave note as-is */ }
+    }
+
+    camBtn.addEventListener("click", async () => {
+      camOn = !camOn;
+      let d = {};
+      try {
+        const r = await fetch("/api/camera?on=" + (camOn ? 1 : 0), { cache: "no-store" });
+        d = await r.json();
+      } catch (e) { setStatus(false); }
+      if (d.available === false) { camBtn.textContent = "Camera: N/A"; camOn = false; return; }
+      camOn = !!d.camera;
+      camBtn.textContent = camOn ? "Camera: ON" : "Camera: OFF";
+      camBtn.style.background = camOn ? "#16331f" : "#1b2740";
+      if (camOn) { visionTimer = setInterval(pollVision, 300); }
+      else { clearInterval(visionTimer); visionTimer = null; visionNote.textContent = "—"; }
+    });
+
+    // --- Independent subsystem toggles: motor / steering / pillar --------
+    const motorBtn  = document.getElementById("motorBtn");
+    const steerBtn  = document.getElementById("steerBtn");
+    const pillarBtn = document.getElementById("pillarBtn");
+    const wallBtn   = document.getElementById("wallBtn");
+    let motorOn = false, steerOn = false, pillarOn = true, wallOn = true;
+
+    function paintToggle(btn, on, label) {
+      btn.textContent = label + ": " + (on ? "ON" : "OFF");
+      btn.style.background  = on ? "#16331f" : "#3a1d1d";
+      btn.style.borderColor = on ? "#1f5630" : "#5a2a2a";
+    }
+    paintToggle(pillarBtn, pillarOn, "Pillar");
+    paintToggle(wallBtn, wallOn, "Corners (walls)");
+
+    motorBtn.addEventListener("click", async () => {
+      motorOn = !motorOn;
+      try { const r = await fetch("/api/motor?on=" + (motorOn ? 1 : 0), { cache: "no-store" }); motorOn = !!(await r.json()).motor; } catch (e) { setStatus(false); }
+      paintToggle(motorBtn, motorOn, "Motor");
+    });
+    steerBtn.addEventListener("click", async () => {
+      steerOn = !steerOn;
+      try { const r = await fetch("/api/steer?on=" + (steerOn ? 1 : 0), { cache: "no-store" }); steerOn = !!(await r.json()).steer; } catch (e) { setStatus(false); }
+      paintToggle(steerBtn, steerOn, "Steering");
+      if (steerOn) startPolling();
+    });
+    pillarBtn.addEventListener("click", async () => {
+      pillarOn = !pillarOn;
+      try {
+        const d = await (await fetch("/api/pillar?on=" + (pillarOn ? 1 : 0), { cache: "no-store" })).json();
+        if (d.available === false) { pillarBtn.textContent = "Pillar: N/A"; return; }
+        pillarOn = !!d.pillar;
+      } catch (e) { setStatus(false); }
+      paintToggle(pillarBtn, pillarOn, "Pillar");
+    });
+    wallBtn.addEventListener("click", async () => {
+      wallOn = !wallOn;
+      try {
+        const d = await (await fetch("/api/wall?on=" + (wallOn ? 1 : 0), { cache: "no-store" })).json();
+        if (d.available === false) { wallBtn.textContent = "Corners: N/A"; return; }
+        wallOn = !!d.wall;
+      } catch (e) { setStatus(false); }
+      paintToggle(wallBtn, wallOn, "Corners (walls)");
+    });
+
+    // Keep the motor/steering toggles in sync with the master Drive/Stop buttons.
+    function reflectRunState(on) {
+      motorOn = on; steerOn = on;
+      paintToggle(motorBtn, motorOn, "Motor");
+      paintToggle(steerBtn, steerOn, "Steering");
+    }
+    document.getElementById("stopBtn").addEventListener("click", async () => {
+      await hit("/api/stop");
+      reflectRunState(false);
+      clearInterval(headingTimer); headingTimer = null;
+      pollHeading();   // one final refresh; servo now at CENTER (79)
+    });
+  </script>
+</body>
+</html>
