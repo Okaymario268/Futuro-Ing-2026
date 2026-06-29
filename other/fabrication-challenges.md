@@ -86,3 +86,52 @@ instead of guessing**.
 
 These measured values are now used as the reference angles for steering in the
 control code.
+
+---
+
+## 🏁 Autonomous strategy — Open (Stage 1) & Obstacle (Stage 2)
+
+The control software is **split by challenge** over a shared core, the dominant
+judge-friendly pattern. Rule citations are to the WRO
+[2026](https://wro-association.org/wp-content/uploads/WRO-2026-Future-Engineers-Self-Driving-Cars-General-Rules.pdf)
+and [2025](https://wro-association.org/wp-content/uploads/WRO-2025-Future-Engineers-Self-Driving-Cars-General-Rules.pdf)
+General Rules.
+
+### Verified rules that shaped the code
+- **3 laps = 12 corners**, fully autonomous, 3-minute rounds. A lap counts **on the
+  EXIT of corner #12**, not on entry — so the car must coast out of the last corner
+  before stopping (a naïve "+1 on entry" counter stops a hair early and forfeits the lap).
+- **Driving direction (CW/CCW) is randomized each round** — the turn sign **cannot be
+  hardcoded**; it is inferred from the first corner line on the mat.
+- Corner floor lines: **orange** CMYK(0,60,100,0) and **blue** CMYK(100,80,0,0), 20 mm
+  thick, one of each per corner. Walls are 100 mm tall, inner faces **black**, floor **white**.
+- **Obstacle only:** **red pillar → pass on the RIGHT, green → on the LEFT** (rule 9.19),
+  in both directions. Pillars are 50×50×**100 mm** (same height as walls — separate by colour).
+- **Parking:** a 20 cm × (1.5 × car length) lot bounded by two **magenta** blocks;
+  **touching a marker = zero parking points.**
+
+### Stage 1 — Open Challenge ([`stage1_open.py`](../src/python/stage1_open.py))
+1. Gyro **heading-hold PD** drives straight (existing, unchanged).
+2. A lower-frame **ROI detects the orange/blue line**; the **first colour latches the
+   turn direction** for the whole run.
+3. Each debounced line crossing fires `turn(±90)`; the same PD loop sweeps the corner.
+4. **Auto-stop after corner #12** (coast out, then `stop()`).
+
+### Stage 2 — Obstacle Challenge ([`stage2_obstacle.py`](../src/python/stage2_obstacle.py))
+Everything above **plus**:
+- **Pillar passing** via a target-x PD: red is steered toward the left of the frame
+  (car swings right → red on the right), green toward the right (green on the left).
+- **Parallel-park finish** after corner #12: a reverse-arc (≈−75° entry → straighten →
+  small forward tuck) built from MCU heading targets + a new reverse-drive path.
+
+### Open risks to settle on the mat
+- The **orange→right / blue→left** mapping is a **team convention, not rule text** — verify it.
+- **Never over-count** corners (a spurious line/drift spike that stops early forfeits laps).
+- **Camera-only parking is the documented failure mode** (drift can clip a magenta marker);
+  adding **one side distance sensor** is strongly recommended.
+- All HSV ranges, ROIs, PD gains and park angles are **starting points to re-tune** under
+  competition lighting (the rules grant calibration time).
+
+**Reference implementations borrowed from:** Nerdvana Taurus (gyro hybrid + reverse-arc
+park), kylln20 (pillar target-x passing), F2er-WRO (line HSV ranges), Helem-arch
+(blob-position direction), oracleapolloo (clean per-stage split).

@@ -80,6 +80,7 @@
 // ---------------------------------------------------------------------------
 #define LOOP_MS     20       // 20 ms -> 50 Hz control update
 #define MOTOR_SPEED 140      // L298N PWM duty 0..255 for the run (lower = gentler)
+#define TARGET_TOL  5.0f     // deg: |targetHeading - heading| under this = "at target" (parking)
 
 // ---------------------------------------------------------------------------
 // MPU-6050 / GY-521 registers
@@ -101,6 +102,7 @@
 // ---------------------------------------------------------------------------
 Servo servo;
 int   currentAngle  = CENTER;   // last servo angle written
+int   driveDir      = +1;       // +1 = forward, -1 = reverse (reverse used only for parking)
 
 // --- Independent subsystem switches (motor / steering are decoupled) ---------
 //   motorEnabled : L298N drive motor running?
@@ -203,8 +205,8 @@ void motorStop() {
 void applyDrive() {
   if (!motorEnabled || speedPct <= 0) { motorStop(); return; }
   int spd = (int)((long)MOTOR_SPEED * speedPct / 100);
-  digitalWrite(MOTOR_IN1, HIGH);
-  digitalWrite(MOTOR_IN2, LOW);
+  if (driveDir >= 0) { digitalWrite(MOTOR_IN1, HIGH); digitalWrite(MOTOR_IN2, LOW);  }  // forward
+  else               { digitalWrite(MOTOR_IN1, LOW);  digitalWrite(MOTOR_IN2, HIGH); }  // reverse
   analogWrite(MOTOR_ENA, spd);
 }
 
@@ -325,6 +327,20 @@ int get_steer()   { return lastSteer;                   }   // last servo angle
 int get_target()  { return (int)lroundf(targetHeading); }   // deg
 int get_motor()   { return motorEnabled ? 1 : 0;        }   // motor switch state
 int get_hold()    { return holdEnabled  ? 1 : 0;        }   // steering switch state
+int get_turns()   { return turnCount;                   }   // corners executed (lap counting)
+
+// Drive direction for the parking maneuver: +1 forward, -1 reverse. Reverse swaps
+// IN1/IN2 in applyDrive(); the gyro PD loop keeps steering to targetHeading either way.
+int set_drive_dir(int dir) {
+  driveDir = (dir < 0) ? -1 : +1;
+  applyDrive();
+  Monitor.println(String("set_drive_dir -> ") + (driveDir < 0 ? "REVERSE" : "FORWARD"));
+  return driveDir;
+}
+
+// Parking helper: 1 when the heading has reached its target (within TARGET_TOL), else 0.
+// The Python park sequence bumps targetHeading via turn() then polls this between segments.
+int at_target() { return (fabsf(targetHeading - heading) < TARGET_TOL) ? 1 : 0; }
 
 // ===========================================================================
 // setup / loop
@@ -366,6 +382,9 @@ void setup() {
   Bridge.provide_safe("get_target",   get_target);
   Bridge.provide_safe("get_motor",    get_motor);
   Bridge.provide_safe("get_hold",     get_hold);
+  Bridge.provide_safe("get_turns",    get_turns);      // lap counting (Python FSM)
+  Bridge.provide_safe("set_drive_dir", set_drive_dir); // forward/reverse (parking)
+  Bridge.provide_safe("at_target",    at_target);      // heading-reached poll (parking)
   Monitor.println("bridge handlers registered; ready");
 }
 

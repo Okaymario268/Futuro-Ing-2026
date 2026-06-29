@@ -110,6 +110,29 @@ This repository follows the official **WRO Future Engineers** engineering-materi
 | **Actuation** | `src/sketch/sketch.ino` | Steering servo on **D9** + DC drive motor via the **L298N** |
 | **Interface** | `src/python/main.py` + `src/assets` | Web UI (FastAPI) + RouterBridge RPC bridge to the MCU |
 
+### 🏁 Autonomous run — Stage 1 (Open) vs Stage 2 (Obstacle)
+
+The competition code is **split by challenge**, over a shared core. Select the matching
+entry file as the App Lab program for each round:
+
+| File | Stage | What it does |
+|------|:-----:|--------------|
+| [`src/python/stage1_open.py`](src/python/stage1_open.py) | **1 · Open** | 3 laps · gyro drive-straight · orange/blue **corner lines** turn the car · direction **latched from the first line** · **auto-stop after corner #12**. No pillars, no parking. |
+| [`src/python/stage2_obstacle.py`](src/python/stage2_obstacle.py) | **2 · Obstacle** | Everything in Stage 1 **plus** red→right / green→left **pillar passing** and a **parallel-park** finish. |
+
+**Shared (used by both):**
+- [`src/sketch/sketch.ino`](src/sketch/sketch.ino) — gyro heading-hold PD steering + motor; now also reverse drive + `at_target`/`get_turns` for parking & lap counting.
+- [`src/python/vision.py`](src/python/vision.py) — perception: `detect_lines` (orange/blue), `decide_open`, `decide_obstacle`, wall centering.
+- [`src/python/fsm.py`](src/python/fsm.py) — the 3-lap state machine (`RaceController`).
+- [`src/python/bridge_io.py`](src/python/bridge_io.py) — thin RPC wrappers to the MCU.
+
+> [!IMPORTANT]
+> Every threshold (HSV, ROIs, PD gains, park angles) is a **starting point to tune on the
+> real mat**. The orange→right / blue→left mapping is a **team convention, not a rule** —
+> verify it on your field and flip if turns go the wrong way. Camera-only parking is the
+> documented failure mode; a single side distance sensor is strongly recommended. Full
+> rationale + rule citations are in [`other/fabrication-challenges.md`](other/fabrication-challenges.md).
+
 ### ⚙️ How it works
 
 **Sketch ([`src/sketch/sketch.ino`](src/sketch/sketch.ino))** registers RPC handlers with

@@ -75,6 +75,21 @@ WHITE_HI = (180, 70, 255)
 FLOOR_T, FLOOR_B = int(0.45 * FRAME_H), int(0.78 * FRAME_H)   # left/right halves split at centre
 
 # ---------------------------------------------------------------------------
+# Orange / blue CORNER LINES (WRO FE). The 20 mm floor lines are the PRIMARY
+# corner trigger for both stages; the FIRST colour seen latches the run's turn
+# direction. (The black-wall heuristic stays only as a centering / front-halt aid.)
+#   The orange->right / blue->left mapping is a TEAM CONVENTION, not a rule -
+#   confirm it on YOUR mat for a known CW/CCW layout and flip if turns go wrong.
+# HSV starting ranges from F2er-WRO 2025 (open_challenge_color.py). TUNE ON MAT.
+# ---------------------------------------------------------------------------
+LINE_T, LINE_B = int(0.55 * FRAME_H), int(0.95 * FRAME_H)   # lower band, just ahead of the car
+LINE_L, LINE_R = int(0.10 * FRAME_W), int(0.90 * FRAME_W)
+ORANGE_LINE_LO, ORANGE_LINE_HI = (5, 100, 100), (25, 255, 255)   # H>=5 so red pillars don't leak in
+BLUE_LINE_LO,   BLUE_LINE_HI   = (100, 150, 50), (130, 255, 255)
+LINE_MIN_PIX = 800        # px in the ROI to call a line "present"  (TUNE ON MAT)
+ORANGE_TURN, BLUE_TURN = +90, -90    # latched turn sign per first-line colour (verify!)
+
+# ---------------------------------------------------------------------------
 # Driving policy
 # ---------------------------------------------------------------------------
 CRUISE_PCT     = 70       # speed when the path is clear
@@ -181,6 +196,15 @@ def detect_walls(hsv):
     )
 
 
+def detect_lines(hsv):
+    """(orange_px, blue_px) inside the floor-line ROI — the corner trigger + direction
+    cue for both stages. Raw pixel counts; compare to LINE_MIN_PIX for 'present'."""
+    roi = hsv[LINE_T:LINE_B, LINE_L:LINE_R]
+    o = cv2.inRange(roi, np.array(ORANGE_LINE_LO), np.array(ORANGE_LINE_HI))
+    b = cv2.inRange(roi, np.array(BLUE_LINE_LO),   np.array(BLUE_LINE_HI))
+    return int(cv2.countNonZero(o)), int(cv2.countNonZero(b))
+
+
 # ===========================================================================
 # Policy: detections -> a driving command
 # ===========================================================================
@@ -250,6 +274,52 @@ def decide(walls, red, green, pillar_enabled=True, wall_enabled=True):
     return VisionCommand(int(speed), int(bias), note, int(turn))
 
 
+# ===========================================================================
+# Stage-specific policies (corner turn is added by the pipeline from the lines)
+# ===========================================================================
+# Pillar passing target-x (Stage 2): steer each colour's blob toward a target column.
+RED_TARGET_X   = int(0.17 * FRAME_W)   # red  -> keep blob LEFT  -> car swings RIGHT (red-on-right)
+GREEN_TARGET_X = int(0.83 * FRAME_W)   # green -> keep blob RIGHT -> car swings LEFT  (green-on-left)
+K_PILLAR = 0.06                        # deg of bias per px of x-error  (TUNE ON MAT)
+
+
+def _centering_bias(walls):
+    return int(WALL_GAIN * (walls.left - walls.right))   # steer away from the closer wall
+
+
+def decide_open(walls):
+    """STAGE 1 steering: gyro drives straight; we add wall-centering bias + a front-halt
+    safety. Corners come from the lines (handled in VisionPipeline). NO pillars/magenta."""
+    bias = _centering_bias(walls)
+    speed, note = CRUISE_PCT, "open"
+    if walls.front > FRONT_HALT:
+        speed, note = 0, f"front {walls.front:.2f} HALT"
+    elif walls.front > FRONT_CORNER:
+        speed, note = min(CRUISE_PCT, CORNER_SPEED), "corner ahead -> slow"
+    bias = max(-MAX_TOTAL_BIAS, min(MAX_TOTAL_BIAS, bias))
+    return VisionCommand(int(speed), int(bias), note, 0)
+
+
+def decide_obstacle(walls, red, green):
+    """STAGE 2 steering: wall-centering + red/green pillar passing (target-x PD). Corners
+    still come from the lines (pipeline); magenta/parking handled by the parking stage."""
+    bias = _centering_bias(walls)
+    speed, notes = CRUISE_PCT, []
+    target = red if (red and green and red.distance_mm < green.distance_mm) else (red or green)
+    if target is not None:
+        tx = RED_TARGET_X if target.color == "red" else GREEN_TARGET_X
+        pbias = int(-K_PILLAR * (tx - target.cx))     # red-on-right / green-on-left, self-correcting
+        pbias = max(-MAX_BIAS_DEG, min(MAX_BIAS_DEG, pbias))
+        bias += pbias
+        speed = min(speed, _throttle(target.distance_mm))
+        notes.append(f"{target.color}@{target.distance_mm:.0f}mm x{target.cx} bias{pbias:+d}")
+    if walls.front > FRONT_HALT:
+        speed = 0
+        notes.append("front HALT")
+    bias = max(-MAX_TOTAL_BIAS, min(MAX_TOTAL_BIAS, bias))
+    return VisionCommand(int(speed), int(bias), "; ".join(notes) or "obstacle: clear", 0)
+
+
 def annotate(frame, red, green, marker, walls, cmd):
     """Draw ROIs, detections and the command for the standalone/debug view."""
     cv2.rectangle(frame, (FRONT_L, FRONT_T), (FRONT_R, FRONT_B), (200, 200, 0), 1)
@@ -277,11 +347,15 @@ def annotate(frame, red, green, marker, walls, cmd):
 # ===========================================================================
 class VisionPipeline:
     def __init__(self, on_command=None, camera_index=CAMERA_INDEX,
-                 pillar_enabled=True, wall_enabled=True):
+                 pillar_enabled=True, wall_enabled=True, stage=None):
         self.on_command = on_command
         self.camera_index = camera_index
-        self.pillar_enabled = pillar_enabled   # red/green pillar passing
-        self.wall_enabled = wall_enabled       # wall centering + corner trigger
+        self.pillar_enabled = pillar_enabled   # red/green pillar passing (legacy path)
+        self.wall_enabled = wall_enabled       # wall centering + corner trigger (legacy path)
+        # stage = "open" | "obstacle" -> autonomous race path (line-triggered corners).
+        # stage = None -> legacy combined behaviour used by the manual Web UI (main.py).
+        self.stage = stage
+        self.turn_direction = 0                # latched +90/-90 from the FIRST corner line
         self.last = None
         self._thread = None
         self._stop = threading.Event()
@@ -352,10 +426,30 @@ class VisionPipeline:
     def process(self, frame):
         frame = cv2.resize(frame, (FRAME_W, FRAME_H))
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-        red, green = detect_pillars(hsv)
         walls = detect_walls(hsv)
-        cmd = decide(walls, red, green, self.pillar_enabled, self.wall_enabled)
-        cmd.turn = self._latch_corner(cmd.turn)   # debounce + one-shot
+
+        # --- legacy / Web-UI path (no stage): keep the old combined behaviour ---
+        if self.stage not in ("open", "obstacle"):
+            red, green = detect_pillars(hsv)
+            cmd = decide(walls, red, green, self.pillar_enabled, self.wall_enabled)
+            cmd.turn = self._latch_corner(cmd.turn)   # debounce + one-shot
+            self.last = cmd
+            return cmd, red, green, walls
+
+        # --- stage path: the orange/blue line is the PRIMARY corner trigger ---
+        if self.stage == "obstacle":
+            red, green = detect_pillars(hsv)
+            cmd = decide_obstacle(walls, red, green)
+        else:                                    # "open"
+            red = green = None
+            cmd = decide_open(walls)
+
+        o, b = detect_lines(hsv)
+        line_present = max(o, b) >= LINE_MIN_PIX
+        if line_present and self.turn_direction == 0:     # latch direction on the FIRST line
+            self.turn_direction = ORANGE_TURN if o >= b else BLUE_TURN
+        suggestion = self.turn_direction if line_present else 0
+        cmd.turn = self._latch_corner(suggestion)         # debounce -> one fire per physical line
         self.last = cmd
         return cmd, red, green, walls
 
