@@ -1,3 +1,5 @@
+> 📂 **Source code** — Arduino sketch (C/C++) driving the servo & DC motor, and the Python Web UI for the camera and data handling.
+
 # FuturoIng — Servo angle control with a web UI (Arduino UNO Q · App Lab)
 
 An **Arduino App Lab** app for the **Arduino UNO Q**. Drag a slider in your
