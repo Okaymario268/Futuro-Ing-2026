@@ -2,7 +2,7 @@
 
 <img src="images/panama-flag.png" alt="Bandera de Panamá" width="130" />
 
-<h1>🤖 Robotech La Salle</h1>
+<h1>Robotech La Salle</h1>
 
 <h3>Self-Driving Vehicle · WRO&nbsp;2026 — Future&nbsp;Engineers</h3>
 
