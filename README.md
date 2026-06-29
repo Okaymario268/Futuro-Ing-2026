@@ -41,6 +41,8 @@ Browser slider ──socket.io──▶ Python (Web UI brick) ──RouterBridge
 |-----------|:---:|---------------------|
 | **Arduino UNO Q** | 1 | Main controller (Linux SBC + MCU) running Arduino App Lab |
 | **L298N** dual H-bridge | 1 | Motor driver for the DC drive motor |
+| **DC drive motor** | 1 | Propels the vehicle — driven by the L298N |
+| **Steering servo** | 1 | Steers the front wheels (servo signal on D9) |
 | **GY-521 (MPU-6050)** gyroscope | 1 | 6-axis gyro / accelerometer — heading hold (yaw) to drive straight & turn |
 | **Logitech camera** | 1 | USB webcam for computer vision (pillar colour & obstacle detection) |
 | **12 V battery** | 1 | Main power supply |
@@ -62,7 +64,6 @@ This repo follows the **WRO Future Engineers** engineering-materials template:
 | 🎥 [`video`](video/) | Link to the driving-demonstration video |
 | 👥 [`t-photos`](t-photos/) | Team photos (official + fun) |
 | 🔌 [`schemes`](schemes/) | Electromechanical / wiring schematics |
-| 🧩 [`models`](models/) | 3D-print / laser / CNC model files |
 | 📦 [`other`](other/) | Other supporting documentation |
 
 ```
