@@ -101,6 +101,26 @@ section { padding: 56px 0; }
 .tree li b { color: var(--blue); }
 .tree li span { color: var(--muted); font-size: .9rem; }
 
+/* ---------- Timeline ---------- */
+.timeline { position: relative; margin-top: 12px; padding-left: 30px; }
+.timeline::before {
+  content: ""; position: absolute; left: 7px; top: 8px; bottom: 8px; width: 3px;
+  background: linear-gradient(var(--blue), var(--red)); border-radius: 2px;
+}
+.t-item {
+  position: relative; background: #fff; border: 1px solid var(--line);
+  border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; box-shadow: var(--shadow);
+}
+.t-item::before {
+  content: ""; position: absolute; left: -27px; top: 20px;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--blue); border: 3px solid #fff; box-shadow: 0 0 0 2px var(--blue);
+}
+.t-item.bad::before  { background: var(--red);    box-shadow: 0 0 0 2px var(--red); }
+.t-item.good::before { background: #1f9d55;        box-shadow: 0 0 0 2px #1f9d55; }
+.t-item h3 { color: var(--blue); font-size: 1.05rem; margin-bottom: 4px; }
+.t-item p  { color: var(--muted); font-size: .93rem; }
+
 /* ---------- CTA ---------- */
 .cta { text-align: center; padding: 50px 0 60px; }
 .btn {

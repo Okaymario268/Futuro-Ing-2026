@@ -83,6 +83,15 @@ src/
 
 ---
 
+## 📔 Engineering journey & challenges
+
+The problems we solved going from the first prototype to the final robot — the
+Raspberry Pi setup & servo-PWM issue, the switch to the Arduino UNO Q, and the
+web-UI servo calibration (**centre = 79°**) — are written up in
+**[`other/fabrication-challenges.md`](other/fabrication-challenges.md)**.
+
+---
+
 ## ⚙️ How it works
 
 **Sketch ([`src/sketch/sketch.ino`](src/sketch/sketch.ino))** — registers RPC handlers with

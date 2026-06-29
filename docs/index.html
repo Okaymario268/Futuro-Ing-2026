@@ -67,6 +67,28 @@
       </ul>
     </section>
 
+    <section class="wrap">
+      <h2 class="section-title">Engineering journey</h2>
+      <p class="lead">The problems we solved on the road from the first prototype to the final robot.</p>
+      <div class="timeline">
+        <div class="t-item bad">
+          <h3>🔴 Raspberry Pi — first version</h3>
+          <p>Setup needed an external keyboard, monitor &amp; mouse. Worse, the Pi's PWM pulse frequency didn't match the servo, so steering was never accurate or repeatable.</p>
+        </div>
+        <div class="t-item good">
+          <h3>🟢 Switch to Arduino UNO Q</h3>
+          <p>Same dual nature (Python + C/C++), so we ported the code. C/C++ drives the servo &amp; DC motor with hardware-timed PWM; Python runs the camera and data handling.</p>
+        </div>
+        <div class="t-item">
+          <h3>🎛️ Servo calibration via web UI</h3>
+          <p>The detached servo's centre was unknown — the first command asked for −52° (outside the 0–180° range). A browser slider over the UNO Q's RouterBridge let us measure the real values: orientation off by ~270°, <b>centre = 79°</b>.</p>
+        </div>
+      </div>
+      <p class="lead" style="margin-top:18px">
+        <a href="https://github.com/Okaymario268/Futuro-Ing-2026/blob/main/other/fabrication-challenges.md" target="_blank" rel="noopener">Read the full write-up →</a>
+      </p>
+    </section>
+
     <div class="cta">
       <a class="btn" href="https://github.com/Okaymario268/Futuro-Ing-2026" target="_blank" rel="noopener">View on GitHub →</a>
     </div>
