@@ -73,6 +73,7 @@ def _begin():
 
 
 print("[obstacle] Stage 2 — Obstacle Challenge: starting camera + run", flush=True)
+io.start_heartbeat()   # MCU stops the motor if this program dies mid-run
 camera.start()
 threading.Thread(target=_begin, daemon=True).start()
 

@@ -79,8 +79,14 @@
 // Control-loop timing / drive
 // ---------------------------------------------------------------------------
 #define LOOP_MS     20       // 20 ms -> 50 Hz control update
-#define MOTOR_SPEED 140      // L298N PWM duty 0..255 for the run (lower = gentler)
+#define MOTOR_SPEED 140      // L298N PWM duty 0..255 at 100% speed (lower = gentler)
+#define MOTOR_MIN_PWM 70     // duty at 1% speed: the lowest duty that reliably TURNS your
+                             // drivetrain (an L298N drops ~2V; low duty stalls, not crawls).
+                             // Find it by lowering until the wheels stall, then add margin.
 #define TARGET_TOL  5.0f     // deg: |targetHeading - heading| under this = "at target" (parking)
+#define WATCHDOG_MS 1500     // motor auto-stop if Python stops pinging (crash guard).
+                             // Armed by the FIRST "ping" RPC, so bench use without a
+                             // pinger behaves exactly as before.
 
 // ---------------------------------------------------------------------------
 // MPU-6050 / GY-521 registers
@@ -91,8 +97,10 @@
 #define REG_GYRO_ZOUT_H 0x47 // gyro Z high byte (low byte 0x48 auto-follows)
 #define REG_WHO_AM_I    0x75 // reads 0x68 on a genuine MPU-6050
 
-#define GYRO_FS_CONFIG  0x00    // 0x00 = +/-250 deg/s (finest resolution)
-#define GYRO_SENS       131.0f  // LSB per deg/s at +/-250 deg/s
+#define GYRO_FS_CONFIG  0x08    // 0x08 = +/-500 deg/s: headroom so a snappy 90-deg
+                                // corner can't clip the rate (a clipped rate reads
+                                // low -> heading undercounts -> turns never "arrive")
+#define GYRO_SENS       65.5f   // LSB per deg/s at +/-500 deg/s
 
 #define CAL_SAMPLES     1000    // stationary samples averaged for the bias
 #define RATE_DEADBAND   0.5f    // ignore |rate| below this (deg/s) -> kills noise creep
@@ -129,6 +137,7 @@ int   speedPct      = 100;      // 0..100 scaling of MOTOR_SPEED. Camera drops t
 
 unsigned long lastLoopUs = 0;   // for measured dt
 unsigned long lastTickMs = 0;   // for LOOP_MS scheduling
+unsigned long lastPingMs = 0;   // watchdog: last "ping" RPC (0 = not armed yet)
 
 // ===========================================================================
 // I2C helpers (bare Wire -> Zephyr-portable, no Adafruit dependency)
@@ -200,24 +209,27 @@ void motorStop() {
   digitalWrite(MOTOR_IN2, LOW);
 }
 
-// Drive forward at MOTOR_SPEED scaled by speedPct (camera proximity throttle).
+// Drive at speedPct scaled onto [MOTOR_MIN_PWM..MOTOR_SPEED] (camera proximity
+// throttle). Mapping to a floor instead of 0 matters: 35% of 140 would be duty
+// 49/255, which stalls a geared motor through an L298N instead of crawling.
 // Called whenever motorEnabled or speedPct changes, so the camera can slow/halt live.
 void applyDrive() {
   if (!motorEnabled || speedPct <= 0) { motorStop(); return; }
-  int spd = (int)((long)MOTOR_SPEED * speedPct / 100);
+  int spd = MOTOR_MIN_PWM + (int)((long)(MOTOR_SPEED - MOTOR_MIN_PWM) * speedPct / 100);
   if (driveDir >= 0) { digitalWrite(MOTOR_IN1, HIGH); digitalWrite(MOTOR_IN2, LOW);  }  // forward
   else               { digitalWrite(MOTOR_IN1, LOW);  digitalWrite(MOTOR_IN2, HIGH); }  // reverse
   analogWrite(MOTOR_ENA, spd);
 }
 
 // Write a servo angle, clamped to the mechanical travel band around CENTER.
+// Skips the servo.write() when the angle is unchanged (less servo chatter at 50 Hz).
 void writeSteer(int angle) {
   int lo = CENTER - STEER_TRAVEL, hi = CENTER + STEER_TRAVEL;
   if (angle < lo) angle = lo;
   if (angle > hi) angle = hi;
+  if (angle != currentAngle) servo.write(angle);
   currentAngle = angle;
   lastSteer    = angle;
-  servo.write(angle);
 }
 
 // ===========================================================================
@@ -342,6 +354,14 @@ int set_drive_dir(int dir) {
 // The Python park sequence bumps targetHeading via turn() then polls this between segments.
 int at_target() { return (fabsf(targetHeading - heading) < TARGET_TOL) ? 1 : 0; }
 
+// Watchdog heartbeat: Python pings ~2 Hz during a run. If pings stop while the motor
+// is on (Python crashed mid-run), loop() stops the motor instead of letting the car
+// drive away into a wall. First ping arms it; never pinging = old behaviour.
+int ping() {
+  lastPingMs = millis();
+  return 1;
+}
+
 // ===========================================================================
 // setup / loop
 // ===========================================================================
@@ -385,6 +405,7 @@ void setup() {
   Bridge.provide_safe("get_turns",    get_turns);      // lap counting (Python FSM)
   Bridge.provide_safe("set_drive_dir", set_drive_dir); // forward/reverse (parking)
   Bridge.provide_safe("at_target",    at_target);      // heading-reached poll (parking)
+  Bridge.provide_safe("ping",         ping);           // watchdog heartbeat (crash guard)
   Monitor.println("bridge handlers registered; ready");
 }
 
@@ -392,6 +413,15 @@ void loop() {
   // RouterBridge dispatches provide_safe() callbacks here. The hold loop runs on
   // a fixed schedule and is fully non-blocking (no delay()), so RPCs stay live.
   unsigned long now = millis();
+
+  // Watchdog: armed once Python has pinged; trips if pings stop while driving.
+  if (lastPingMs != 0 && motorEnabled && (now - lastPingMs) > WATCHDOG_MS) {
+    lastPingMs   = 0;            // disarm until the next ping (no re-trip spam)
+    motorEnabled = false;
+    motorStop();
+    Monitor.println("WATCHDOG: no ping from Python -> motor stopped");
+  }
+
   if (holdEnabled && (now - lastTickMs) >= LOOP_MS) {
     lastTickMs = now;
 
@@ -410,9 +440,12 @@ void loop() {
       heading += yawRate * dt;            // 2) integrate to heading
     }
 
-    // 3) PD correction toward the target heading, + camera lateral bias
+    // 3) PD correction toward the target heading, + camera lateral bias.
+    //    driveDir flips the correction in REVERSE: the yaw response to steering
+    //    inverts when backing up (yaw_rate ~ v*tan(steer), v < 0), so without the
+    //    flip the loop becomes POSITIVE feedback while reverse-parking and diverges.
     float error      = targetHeading - heading;
-    float correction = CORRECTION_SIGN * (KP * error + KD * yawRate);
+    float correction = CORRECTION_SIGN * driveDir * (KP * error + KD * yawRate);
     writeSteer((int)lroundf(CENTER - correction) + steerBias);   // clamped inside
   }
 }

@@ -34,25 +34,34 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # Camera / geometry calibration
 # ---------------------------------------------------------------------------
-FRAME_W, FRAME_H = 640, 480
+# 320x240: quarter the pixels of 640x480 -> ~2x the frame rate / half the latency
+# on the UNO Q's A53 cores, and detection at WRO distances doesn't need more.
+# RESOLUTION-DEPENDENT CONSTANTS (scale together if you change FRAME_W/H):
+#     FOCAL_PX, MIN_BLOB_AREA, LINE_MIN_PIX, K_PILLAR
+FRAME_W, FRAME_H = 320, 240
 CAMERA_INDEX = 0
 
-# Pinhole focal length in px. CALIBRATE ONCE: stand a pillar (real height 100 mm)
-# at a known distance D mm, read its pixel height h, then FOCAL_PX = h * D / 100.
+# Pinhole focal length in px AT THIS RESOLUTION. CALIBRATE ONCE: stand a pillar
+# (real height 100 mm) at a known distance D mm, read its pixel height h in the
+# 320x240 frame, then FOCAL_PX = h * D / 100.
 #     distance_mm = real_height_mm * FOCAL_PX / pixel_height
-FOCAL_PX     = 700.0
+FOCAL_PX     = 350.0      # (~700 at 640x480 -> ~350 at 320x240)
 PILLAR_H_MM  = 100.0      # WRO traffic-sign pillar height (50x50x100 mm)
 MARKER_H_MM  = 100.0      # magenta parking marker height (200x20x100 mm)
 
 # ---------------------------------------------------------------------------
 # HSV colour thresholds (OpenCV hue 0-179).  CALIBRATE ON THE REAL MAT.
 # Rulebook RGB: red(238,39,55) green(68,214,44) magenta(255,0,255).
+# Stored as np arrays once (cv2.inRange takes them directly; no per-frame allocs).
 # ---------------------------------------------------------------------------
-RED1_LO,    RED1_HI    = (0, 120, 70),   (10, 255, 255)
-RED2_LO,    RED2_HI    = (170, 120, 70), (179, 255, 255)
-GREEN_LO,   GREEN_HI   = (40, 70, 50),   (85, 255, 255)
-MAGENTA_LO, MAGENTA_HI = (140, 80, 80),  (165, 255, 255)
-MIN_BLOB_AREA = 300       # px^2 - ignore specks
+def _hsv(t):
+    return np.array(t, dtype=np.uint8)
+
+RED1_LO,    RED1_HI    = _hsv((0, 120, 70)),   _hsv((10, 255, 255))
+RED2_LO,    RED2_HI    = _hsv((170, 120, 70)), _hsv((179, 255, 255))
+GREEN_LO,   GREEN_HI   = _hsv((40, 70, 50)),   _hsv((85, 255, 255))
+MAGENTA_LO, MAGENTA_HI = _hsv((140, 80, 80)),  _hsv((165, 255, 255))
+MIN_BLOB_AREA = 75        # px^2 - ignore specks (300 at 640x480 -> 75 at 320x240)
 
 # ---------------------------------------------------------------------------
 # Black-wall detection (idea from Okaymario268/Futuro-Ing-2026 - RETUNE).
@@ -60,8 +69,8 @@ MIN_BLOB_AREA = 300       # px^2 - ignore specks
 # a centre FRONT band (corner/wall ahead?) and LEFT/RIGHT strips (which side is
 # open -> the side to turn into).
 # ---------------------------------------------------------------------------
-BLACK_LO = (0, 0, 0)
-BLACK_HI = (180, 120, 95)
+BLACK_LO = _hsv((0, 0, 0))
+BLACK_HI = _hsv((180, 120, 95))
 FRONT_T, FRONT_B = int(0.55 * FRAME_H), int(0.85 * FRAME_H)
 FRONT_L, FRONT_R = int(0.25 * FRAME_W), int(0.75 * FRAME_W)
 SIDE_T,  SIDE_B  = int(0.55 * FRAME_H), int(0.95 * FRAME_H)
@@ -70,8 +79,8 @@ RIGHT_L, RIGHT_R = int(0.82 * FRAME_W),  FRAME_W
 
 # White floor (track surface). Corner-direction FALLBACK used when the side wall
 # strips are ambiguous: the track continues toward the side showing more floor.
-WHITE_LO = (0, 0, 140)
-WHITE_HI = (180, 70, 255)
+WHITE_LO = _hsv((0, 0, 140))
+WHITE_HI = _hsv((180, 70, 255))
 FLOOR_T, FLOOR_B = int(0.45 * FRAME_H), int(0.78 * FRAME_H)   # left/right halves split at centre
 
 # ---------------------------------------------------------------------------
@@ -84,9 +93,9 @@ FLOOR_T, FLOOR_B = int(0.45 * FRAME_H), int(0.78 * FRAME_H)   # left/right halve
 # ---------------------------------------------------------------------------
 LINE_T, LINE_B = int(0.55 * FRAME_H), int(0.95 * FRAME_H)   # lower band, just ahead of the car
 LINE_L, LINE_R = int(0.10 * FRAME_W), int(0.90 * FRAME_W)
-ORANGE_LINE_LO, ORANGE_LINE_HI = (5, 100, 100), (25, 255, 255)   # H>=5 so red pillars don't leak in
-BLUE_LINE_LO,   BLUE_LINE_HI   = (100, 150, 50), (130, 255, 255)
-LINE_MIN_PIX = 800        # px in the ROI to call a line "present"  (TUNE ON MAT)
+ORANGE_LINE_LO, ORANGE_LINE_HI = _hsv((5, 100, 100)), _hsv((25, 255, 255))
+BLUE_LINE_LO,   BLUE_LINE_HI   = _hsv((100, 150, 50)), _hsv((130, 255, 255))
+LINE_MIN_PIX = 200        # px in the ROI to call a line "present"  (800 at 640x480; TUNE ON MAT)
 ORANGE_TURN, BLUE_TURN = +90, -90    # latched turn sign per first-line colour (verify!)
 
 # ---------------------------------------------------------------------------
@@ -135,7 +144,7 @@ class WallInfo:
 
 @dataclass
 class VisionCommand:
-    speed_pct: int    # 0..100  -> Bridge set_speed
+    speed_pct: int    # 0..100 -> Bridge set_speed; None = leave speed UNCHANGED
     steer_bias: int   # deg, +right/-left -> Bridge nudge
     note: str         # human-readable reason (logged)
     turn: int = 0     # 0 / +90 / -90 -> Bridge turn() at a corner (latched)
@@ -145,7 +154,7 @@ class VisionCommand:
 # Detection
 # ===========================================================================
 def _mask(hsv, lo, hi):
-    m = cv2.inRange(hsv, np.array(lo), np.array(hi))
+    m = cv2.inRange(hsv, lo, hi)
     m = cv2.morphologyEx(m, cv2.MORPH_OPEN, _KERNEL)
     m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, _KERNEL)
     return m
@@ -179,8 +188,8 @@ def detect_marker(hsv):
 def detect_walls(hsv):
     """Black-wall coverage in the FRONT/side ROIs, plus white-floor coverage in
     the left/right halves (the corner-direction fallback). All values 0..1."""
-    black = cv2.inRange(hsv, np.array(BLACK_LO), np.array(BLACK_HI))
-    white = cv2.inRange(hsv, np.array(WHITE_LO), np.array(WHITE_HI))
+    black = cv2.inRange(hsv, BLACK_LO, BLACK_HI)
+    white = cv2.inRange(hsv, WHITE_LO, WHITE_HI)
 
     def frac(mask, y0, y1, x0, x1):
         roi = mask[y0:y1, x0:x1]
@@ -198,10 +207,17 @@ def detect_walls(hsv):
 
 def detect_lines(hsv):
     """(orange_px, blue_px) inside the floor-line ROI — the corner trigger + direction
-    cue for both stages. Raw pixel counts; compare to LINE_MIN_PIX for 'present'."""
+    cue for both stages. Raw pixel counts; compare to LINE_MIN_PIX for 'present'.
+
+    Red-PILLAR pixels are subtracted from the orange count: pillar red (H~0-10,
+    high S) overlaps the orange band's low end, so without this a close red pillar
+    inside the ROI can false-fire a corner — or worse, mis-latch turn_direction on
+    the FIRST event and turn every corner of the run the wrong way."""
     roi = hsv[LINE_T:LINE_B, LINE_L:LINE_R]
-    o = cv2.inRange(roi, np.array(ORANGE_LINE_LO), np.array(ORANGE_LINE_HI))
-    b = cv2.inRange(roi, np.array(BLUE_LINE_LO),   np.array(BLUE_LINE_HI))
+    o = cv2.inRange(roi, ORANGE_LINE_LO, ORANGE_LINE_HI)
+    red = cv2.inRange(roi, RED1_LO, RED1_HI) | cv2.inRange(roi, RED2_LO, RED2_HI)
+    o = cv2.bitwise_and(o, cv2.bitwise_not(red))
+    b = cv2.inRange(roi, BLUE_LINE_LO, BLUE_LINE_HI)
     return int(cv2.countNonZero(o)), int(cv2.countNonZero(b))
 
 
@@ -280,7 +296,8 @@ def decide(walls, red, green, pillar_enabled=True, wall_enabled=True):
 # Pillar passing target-x (Stage 2): steer each colour's blob toward a target column.
 RED_TARGET_X   = int(0.17 * FRAME_W)   # red  -> keep blob LEFT  -> car swings RIGHT (red-on-right)
 GREEN_TARGET_X = int(0.83 * FRAME_W)   # green -> keep blob RIGHT -> car swings LEFT  (green-on-left)
-K_PILLAR = 0.06                        # deg of bias per px of x-error  (TUNE ON MAT)
+K_PILLAR = 0.12                        # deg of bias per px of x-error at 320x240
+                                       # (0.06 at 640x480 — px errors halve)  TUNE ON MAT
 
 
 def _centering_bias(walls):
@@ -340,6 +357,22 @@ def annotate(frame, red, green, marker, walls, cmd):
     cv2.putText(frame, f"speed={cmd.speed_pct}% bias={cmd.steer_bias:+d} turn={cmd.turn:+d}  {cmd.note}",
                 (8, FRAME_H - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
     return frame
+
+
+# ===========================================================================
+# Camera setup (shared by the pipeline thread and the standalone mode)
+# ===========================================================================
+def _open_camera(index):
+    """Open the camera configured for LOW LATENCY: MJPG (less USB bandwidth than
+    raw YUYV, so the requested fps is actually delivered) and a 1-frame buffer —
+    otherwise V4L2 queues stale frames and the car acts on where a wall/pillar
+    WAS several frames ago (the classic vision-robot crash cause)."""
+    cap = cv2.VideoCapture(index)
+    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_W)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    return cap
 
 
 # ===========================================================================
@@ -417,14 +450,18 @@ class VisionPipeline:
         if self._thread:
             self._thread.join(timeout=1.5)
         self._thread = None
-        if self.on_command:                # leave the car un-biased / free to cruise
+        # Clear the steering bias but leave the SPEED untouched (speed_pct=None):
+        # if the pipeline had throttled down because a wall was close, jumping to
+        # 100% on camera-off would floor the car straight at that wall.
+        if self.on_command:
             try:
-                self.on_command(VisionCommand(100, 0, "camera off", 0))
+                self.on_command(VisionCommand(None, 0, "camera off", 0))
             except Exception:
                 pass
 
     def process(self, frame):
-        frame = cv2.resize(frame, (FRAME_W, FRAME_H))
+        if frame.shape[1] != FRAME_W or frame.shape[0] != FRAME_H:
+            frame = cv2.resize(frame, (FRAME_W, FRAME_H))
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         walls = detect_walls(hsv)
 
@@ -454,9 +491,7 @@ class VisionPipeline:
         return cmd, red, green, walls
 
     def _run(self):
-        cap = cv2.VideoCapture(self.camera_index)
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_W)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
+        cap = _open_camera(self.camera_index)
         if not cap.isOpened():
             print(f"[vision] ERROR: cannot open camera {self.camera_index}", flush=True)
             return
@@ -488,9 +523,7 @@ def _main():
                     help="write an annotated frame to PATH ~1x/second")
     args = ap.parse_args()
 
-    cap = cv2.VideoCapture(args.camera)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_W)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
+    cap = _open_camera(args.camera)
     if not cap.isOpened():
         print(f"[vision] cannot open camera {args.camera}", flush=True)
         return
@@ -503,7 +536,8 @@ def _main():
             if not ok:
                 time.sleep(0.05)
                 continue
-            frame = cv2.resize(frame, (FRAME_W, FRAME_H))
+            if frame.shape[1] != FRAME_W or frame.shape[0] != FRAME_H:
+                frame = cv2.resize(frame, (FRAME_W, FRAME_H))
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
             red, green = detect_pillars(hsv)
             marker = detect_marker(hsv)

@@ -11,14 +11,16 @@ Note: this brick (FastAPI + fastapi_socketio) does NOT serve a Socket.IO client
 library, so we use plain REST + fetch() instead of websockets — the pattern the
 working community dashboards use.
 """
-from arduino.app_utils import App, Bridge
+from arduino.app_utils import App
 from arduino.app_bricks.web_ui import WebUI
+
+import bridge_io as io   # the ONE place the firmware RPC contract lives
 
 # The OpenCV vision pipeline is an independent module (python/vision.py). It is
 # optional: if OpenCV/numpy aren't installed the rest of the app still runs and
 # the camera toggle simply reports "unavailable".
 try:
-    from vision import VisionPipeline, VisionCommand
+    from vision import VisionPipeline
     VISION_AVAILABLE = True
 except Exception as _e:  # noqa: BLE001 - ImportError or missing cv2 at runtime
     VisionPipeline = None
@@ -38,15 +40,11 @@ def api_set_angle(angle: int):
     global current_angle
     angle = clamp(angle)
     current_angle = angle
-    try:
-        # set_angle() on the sketch (provide_safe handler) applies it and
-        # returns the value actually written.
-        applied = Bridge.call("set_angle", angle)
-        print(f"[servo] set_angle({angle}) -> {applied!r}", flush=True)
-        if isinstance(applied, (int, float)):
-            current_angle = int(applied)
-    except Exception as e:  # noqa: BLE001 - surface any bridge error in the logs
-        print(f"[servo] Bridge.call FAILED: {e!r}", flush=True)
+    # set_angle() on the sketch applies it and returns the value actually written.
+    applied = io.set_angle(angle)
+    print(f"[servo] set_angle({angle}) -> {applied!r}", flush=True)
+    if isinstance(applied, (int, float)):
+        current_angle = int(applied)
     return {"angle": current_angle}
 
 
@@ -63,34 +61,24 @@ def api_state():
 
 def api_straight():
     """GET /api/straight -> begin a run: zero heading, motor on, hold enabled."""
-    try:
-        Bridge.call("set_straight")
-        print("[drive] set_straight", flush=True)
-    except Exception as e:  # noqa: BLE001
-        print(f"[drive] Bridge.call set_straight FAILED: {e!r}", flush=True)
+    io.set_straight()
+    print("[drive] set_straight", flush=True)
     return {"straight": True}
 
 
 def api_turn(deg: int):
     """GET /api/turn?deg=90 -> bump the target heading by deg (corner)."""
-    count = None
-    try:
-        count = Bridge.call("turn", int(deg))
-        print(f"[drive] turn({deg}) -> count={count!r}", flush=True)
-    except Exception as e:  # noqa: BLE001
-        print(f"[drive] Bridge.call turn FAILED: {e!r}", flush=True)
+    count = io.turn(deg)
+    print(f"[drive] turn({deg}) -> count={count!r}", flush=True)
     return {"turns": count}
 
 
 def api_stop():
     """GET /api/stop -> stop motor, recenter servo, disable hold."""
     global current_angle
-    try:
-        Bridge.call("stop")
+    if io.stop() is not None:
         current_angle = 79  # CENTER -- the sketch recentered the servo
-        print("[drive] stop", flush=True)
-    except Exception as e:  # noqa: BLE001
-        print(f"[drive] Bridge.call stop FAILED: {e!r}", flush=True)
+    print("[drive] stop", flush=True)
     return {"straight": False}
 
 
@@ -102,7 +90,6 @@ def api_stop():
 # the Linux side sets drive speed -- both the web slider and the camera proximity
 # logic funnel through set_drive_speed() so there's one source of truth.
 # ==========================================================================
-CRUISE_PCT = 70            # default cruising speed (% of the sketch's MOTOR_SPEED)
 current_speed = 100        # last speed % we commanded
 
 
@@ -110,11 +97,8 @@ def set_drive_speed(pct):
     """Command the L298N drive speed as 0..100 % of MOTOR_SPEED (via the MCU)."""
     global current_speed
     pct = max(0, min(100, int(pct)))
-    try:
-        applied = Bridge.call("set_speed", pct)
-        current_speed = int(applied) if isinstance(applied, (int, float)) else pct
-    except Exception as e:  # noqa: BLE001
-        print(f"[motor] Bridge.call set_speed FAILED: {e!r}", flush=True)
+    applied = io.set_speed(pct)
+    current_speed = int(applied) if isinstance(applied, (int, float)) else pct
     return current_speed
 
 
@@ -127,12 +111,7 @@ def api_speed(pct: int):
 def api_motor(on: int = 1):
     """GET /api/motor?on=1|0 -> toggle ONLY the L298N drive motor (independent of
     steering)."""
-    state = None
-    try:
-        state = Bridge.call("set_motor", 1 if int(on) else 0)
-    except Exception as e:  # noqa: BLE001
-        print(f"[motor] Bridge.call set_motor FAILED: {e!r}", flush=True)
-    return {"motor": bool(state)}
+    return {"motor": bool(io.set_motor(int(on)))}
 
 
 # ==========================================================================
@@ -141,12 +120,7 @@ def api_motor(on: int = 1):
 def api_steer(on: int = 1):
     """GET /api/steer?on=1|0 -> toggle ONLY the gyro heading-hold steering (servo);
     OFF straightens to center, the motor is unaffected."""
-    state = None
-    try:
-        state = Bridge.call("set_steer", 1 if int(on) else 0)
-    except Exception as e:  # noqa: BLE001
-        print(f"[steer] Bridge.call set_steer FAILED: {e!r}", flush=True)
-    return {"steer": bool(state)}
+    return {"steer": bool(io.set_steer(int(on)))}
 
 
 def api_nudge(bias: int):
@@ -154,24 +128,16 @@ def api_nudge(bias: int):
 
     Used to hug a side past a red/green pillar or to veer off an approaching wall;
     bias=0 clears it. Returns the applied bias."""
-    applied = None
-    try:
-        applied = Bridge.call("nudge", int(bias))
-    except Exception as e:  # noqa: BLE001
-        print(f"[drive] Bridge.call nudge FAILED: {e!r}", flush=True)
-    return {"bias": applied}
+    return {"bias": io.nudge(bias)}
 
 
 def api_heading():
     """GET /api/heading -> live heading / target / steer for the UI to poll."""
-    out = {"heading": None, "target": None, "steer": None}
-    try:
-        out["heading"] = Bridge.call("get_heading")
-        out["target"] = Bridge.call("get_target")
-        out["steer"] = Bridge.call("get_steer")
-    except Exception as e:  # noqa: BLE001
-        print(f"[drive] Bridge.call heading FAILED: {e!r}", flush=True)
-    return out
+    return {
+        "heading": io.get_heading(),
+        "target": io.get_target(),
+        "steer": io.get_steer(),
+    }
 
 
 # ==========================================================================
@@ -190,19 +156,15 @@ def _on_vision(cmd):
     don't spam the bridge), and fire a corner turn when the camera detects one."""
     # Corner trigger - already latched to fire once per corner in the pipeline.
     if getattr(cmd, "turn", 0):
-        try:
-            Bridge.call("turn", int(cmd.turn))
-            print(f"[vision] corner -> turn({cmd.turn})", flush=True)
-        except Exception as e:  # noqa: BLE001
-            print(f"[vision] Bridge.call turn FAILED: {e!r}", flush=True)
-    if cmd.speed_pct != _last_sent["speed"]:
+        io.turn(cmd.turn)
+        print(f"[vision] corner -> turn({cmd.turn})", flush=True)
+    # speed_pct None = "leave speed unchanged" (the camera-off command) -- jumping
+    # to a fixed speed on camera-off could floor the car at a close wall.
+    if cmd.speed_pct is not None and cmd.speed_pct != _last_sent["speed"]:
         set_drive_speed(cmd.speed_pct)
         _last_sent["speed"] = cmd.speed_pct
     if cmd.steer_bias != _last_sent["bias"]:
-        try:
-            Bridge.call("nudge", int(cmd.steer_bias))
-        except Exception as e:  # noqa: BLE001
-            print(f"[vision] Bridge.call nudge FAILED: {e!r}", flush=True)
+        io.nudge(cmd.steer_bias)
         _last_sent["bias"] = cmd.steer_bias
 
 
@@ -273,6 +235,10 @@ ui.expose_api("GET", "/api/camera", api_camera)      # /api/camera?on=1|0 (toggl
 ui.expose_api("GET", "/api/pillar", api_pillar)      # /api/pillar?on=1|0 (pillar behavior)
 ui.expose_api("GET", "/api/wall", api_wall)          # /api/wall?on=1|0   (corner assist)
 ui.expose_api("GET", "/api/vision", api_vision)      # latest vision command
+
+# Watchdog heartbeat: the MCU stops the motor if these pings go silent for ~1.5 s
+# (i.e. this program crashed while the car was driving).
+io.start_heartbeat()
 
 # Keeps the app (and the Web UI server) alive. Work is request-driven via the
 # REST handlers above, so no user_loop is needed.

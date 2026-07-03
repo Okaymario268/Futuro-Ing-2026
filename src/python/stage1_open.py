@@ -23,6 +23,7 @@ from arduino.app_utils import App
 
 from vision import VisionPipeline
 from fsm import RaceController
+import bridge_io as io
 
 START_DELAY_S = 2.0   # time to place the car / clear hands after pressing Run
 
@@ -36,6 +37,7 @@ def _begin():
 
 
 print("[open] Stage 1 — Open Challenge: starting camera + run", flush=True)
+io.start_heartbeat()   # MCU stops the motor if this program dies mid-run
 camera.start()
 threading.Thread(target=_begin, daemon=True).start()
 
