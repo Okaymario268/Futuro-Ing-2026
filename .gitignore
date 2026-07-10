@@ -12,6 +12,10 @@ build/
 *.bin
 *.elf
 
+# Generated tool output (simulator renders, packaged App Lab zips)
+tools/sim_out/
+tools/*.zip
+
 # OS / editor
 .DS_Store
 Thumbs.db

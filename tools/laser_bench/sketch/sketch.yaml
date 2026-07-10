@@ -1,0 +1,22 @@
+# Libs del bench del láser (MCU). App Lab resuelve las librerías del sketch DESDE
+# este archivo (no desde la carpeta del IDE clásico).
+#
+# Board: Arduino UNO Q -> MCU STM32U585 / Zephyr -> fqbn arduino:zephyr:unoq (App Lab
+# lo rellena de la placa conectada; deja fqbn: en blanco).
+#
+# VL53L0X = librería de POLOLU: single-file, driver Arduino puro sobre Wire, SIN el
+# árbol de fuentes del vendor ST -> evita el error de link "file format not recognized"
+# que da la Adafruit_VL53L0X (vendor pesado) en el core beta de la UNO Q.
+#
+# Arduino_RouterBridge NO se fija aquí: viene con el template de App Lab y se resuelve
+# solo en el build.
+
+profiles:
+  default:
+    fqbn:
+    platforms:
+      - platform: arduino:zephyr
+    libraries:
+      - VL53L0X
+
+default_profile: default

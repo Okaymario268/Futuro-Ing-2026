@@ -25,6 +25,7 @@ Board-agnostic (no bridge import). Run standalone to calibrate without the board
 """
 from dataclasses import dataclass
 import argparse
+import glob
 import time
 import threading
 
@@ -71,8 +72,11 @@ MIN_BLOB_AREA = 75        # px^2 - ignore specks (300 at 640x480 -> 75 at 320x24
 # ---------------------------------------------------------------------------
 BLACK_LO = _hsv((0, 0, 0))
 BLACK_HI = _hsv((180, 120, 95))
-FRONT_T, FRONT_B = int(0.55 * FRAME_H), int(0.85 * FRAME_H)
-FRONT_L, FRONT_R = int(0.25 * FRAME_W), int(0.75 * FRAME_W)
+FRONT_T, FRONT_B = int(0.35 * FRAME_H), int(0.65 * FRAME_H)   # MID band: catch a wall
+FRONT_L, FRONT_R = int(0.25 * FRAME_W), int(0.75 * FRAME_W)   # AHEAD, not only when it's
+                                                             # already filling the bottom
+                                                             # (old 0.55-0.85 read ~0 with a
+                                                             # wall dead ahead -> drove into it)
 SIDE_T,  SIDE_B  = int(0.55 * FRAME_H), int(0.95 * FRAME_H)
 LEFT_L,  LEFT_R  = 0,                    int(0.18 * FRAME_W)
 RIGHT_L, RIGHT_R = int(0.82 * FRAME_W),  FRAME_W
@@ -91,28 +95,38 @@ FLOOR_T, FLOOR_B = int(0.45 * FRAME_H), int(0.78 * FRAME_H)   # left/right halve
 #   confirm it on YOUR mat for a known CW/CCW layout and flip if turns go wrong.
 # HSV starting ranges from F2er-WRO 2025 (open_challenge_color.py). TUNE ON MAT.
 # ---------------------------------------------------------------------------
-LINE_T, LINE_B = int(0.55 * FRAME_H), int(0.95 * FRAME_H)   # lower band, just ahead of the car
+# WIDE band: SEE the line early (latch direction, show it in the UI)...
+LINE_T, LINE_B = int(0.55 * FRAME_H), int(0.98 * FRAME_H)
 LINE_L, LINE_R = int(0.10 * FRAME_W), int(0.90 * FRAME_W)
-ORANGE_LINE_LO, ORANGE_LINE_HI = _hsv((5, 100, 100)), _hsv((25, 255, 255))
-BLUE_LINE_LO,   BLUE_LINE_HI   = _hsv((100, 150, 50)), _hsv((130, 255, 255))
-LINE_MIN_PIX = 200        # px in the ROI to call a line "present"  (800 at 640x480; TUNE ON MAT)
+# ...but only FIRE the turn once the line sits LOW in the frame (= near the nose,
+# whatever the camera's height/tilt): its pixel-centroid row must pass this line.
+# The 90-deg arc should START at the line, not 0.4 m before it (sim-verified).
+LINE_FIRE_ROW = int(0.80 * FRAME_H)
+ORANGE_LINE_LO, ORANGE_LINE_HI = _hsv((5, 80, 80)),   _hsv((25, 255, 255))
+BLUE_LINE_LO,   BLUE_LINE_HI   = _hsv((100, 100, 40)), _hsv((130, 255, 255))
+LINE_MIN_PIX = 200        # px in the ROI to call a line "present"  (TUNE ON MAT via the feed)
 ORANGE_TURN, BLUE_TURN = +90, -90    # latched turn sign per first-line colour (verify!)
 
 # ---------------------------------------------------------------------------
 # Driving policy
 # ---------------------------------------------------------------------------
-CRUISE_PCT     = 70       # speed when the path is clear
+CRUISE_PCT     = 90       # speed when the path is clear (raised 70 -> 90 with the
+                          # MCU's MOTOR_SPEED now at full 255 duty; camera-on no
+                          # longer strangles the motor)
 SLOW_DIST_MM   = 500      # start slowing for a pillar closer than this
 HALT_DIST_MM   = 150      # full stop for a pillar closer than this
 MAX_BIAS_DEG   = 18       # strongest single pillar-pass bias
 MAX_TOTAL_BIAS = 28       # clamp on (wall-centering + pillar) bias, deg
 
-FRONT_CORNER  = 0.45      # front-black above this -> a wall/corner is ahead
-FRONT_HALT    = 0.85      # front-black above this -> wall too close -> halt
+FRONT_CORNER  = 0.45      # front-black above this -> a wall/corner is ahead -> steer around
+FRONT_HALT    = 0.88      # front-black above this -> wall right in front -> last-resort halt
+AVOID_BIAS    = 24        # deg: hard steer toward the OPEN side when a wall looms ahead
 SIDE_DIFF     = 0.18      # L/R wall coverage gap needed to choose a turn direction
 FLOOR_DIFF    = 0.12      # L/R floor gap to pick a turn when walls are ambiguous
 WALL_GAIN     = 26.0      # deg of centering bias per unit (left-right) gap
-CORNER_SPEED  = 35        # % drive speed while committing to a corner
+CORNER_SPEED  = 60        # % drive speed while committing to a corner (raised 35 -> 60:
+                          # 35% was inside the L298N stall region -- the "camera on =
+                          # no motor power" bug; matches OPEN_CORNER_SPEED/TURN_DRIVE_PCT)
 CORNER_STREAK = 3         # consecutive frames before firing a corner turn()
 CLEAR_STREAK  = 4         # consecutive clear frames before re-arming the trigger
 
@@ -206,8 +220,10 @@ def detect_walls(hsv):
 
 
 def detect_lines(hsv):
-    """(orange_px, blue_px) inside the floor-line ROI — the corner trigger + direction
-    cue for both stages. Raw pixel counts; compare to LINE_MIN_PIX for 'present'.
+    """(orange_px, blue_px, orange_row, blue_row) inside the floor-line ROI — the
+    corner trigger + direction cue for both stages. Counts compare to LINE_MIN_PIX
+    for 'present'; rows are each colour's pixel-centroid row in FULL-FRAME coords
+    (-1 = none) and gate the FIRE: low row = line near the nose.
 
     Red-PILLAR pixels are subtracted from the orange count: pillar red (H~0-10,
     high S) overlaps the orange band's low end, so without this a close red pillar
@@ -218,7 +234,13 @@ def detect_lines(hsv):
     red = cv2.inRange(roi, RED1_LO, RED1_HI) | cv2.inRange(roi, RED2_LO, RED2_HI)
     o = cv2.bitwise_and(o, cv2.bitwise_not(red))
     b = cv2.inRange(roi, BLUE_LINE_LO, BLUE_LINE_HI)
-    return int(cv2.countNonZero(o)), int(cv2.countNonZero(b))
+
+    def _centroid_row(mask):
+        ys = np.nonzero(mask)[0]
+        return int(ys.mean()) + LINE_T if ys.size else -1
+
+    return (int(cv2.countNonZero(o)), int(cv2.countNonZero(b)),
+            _centroid_row(o), _centroid_row(b))
 
 
 # ===========================================================================
@@ -248,6 +270,7 @@ def decide(walls, red, green, pillar_enabled=True, wall_enabled=True):
             notes.append(f"front wall {walls.front:.2f} -> HALT")
         elif walls.front > FRONT_CORNER:
             speed = min(speed, CORNER_SPEED)
+            bias += _avoid_bias(walls)          # steer around the wall while deciding the corner
             if walls.left - walls.right > SIDE_DIFF:
                 turn = +90
                 notes.append("corner: wall LEFT, open right -> turn right")
@@ -300,19 +323,44 @@ K_PILLAR = 0.12                        # deg of bias per px of x-error at 320x24
                                        # (0.06 at 640x480 — px errors halve)  TUNE ON MAT
 
 
+# --- STAGE 1 (open) overrides — tuned on the real mat, July 2026 --------------
+# The shared defaults made the Stage-1 bot react to the black wall way too early:
+# it slowed/halted mid-straight and crawled into corners at 35%, which stalls the
+# L298N drivetrain and looks like a dead stop. React at ~HALF the distance (the
+# front band's black coverage grows as the wall nears -> a higher threshold =
+# a closer wall) and keep real motor power through the corner. The HC-SR04 on
+# the MCU still hard-blocks forward under 150 mm, so reacting later is safe.
+OPEN_FRONT_CORNER = 0.70   # was FRONT_CORNER 0.45 -> steer-around kicks in ~50% closer
+OPEN_FRONT_HALT   = 0.96   # was FRONT_HALT 0.88 -> halt only when the band is truly filled
+OPEN_CORNER_SPEED = 60     # % drive while steering around / sweeping a corner (was 35)
+
+
 def _centering_bias(walls):
     return int(WALL_GAIN * (walls.left - walls.right))   # steer away from the closer wall
 
 
+def _avoid_bias(walls):
+    """When a wall looms straight AHEAD, steer toward the OPEN side (the side with more
+    floor / less wall) so the car noses AROUND the corner instead of driving into it."""
+    open_score = (walls.floor_right - walls.floor_left) + (walls.left - walls.right)
+    return AVOID_BIAS if open_score >= 0 else -AVOID_BIAS
+
+
 def decide_open(walls):
-    """STAGE 1 steering: gyro drives straight; we add wall-centering bias + a front-halt
-    safety. Corners come from the lines (handled in VisionPipeline). NO pillars/magenta."""
+    """STAGE 1 steering: gyro drives straight; BLACK-WALL detection is back ON
+    (user request) but reacts LATE -- at ~half the distance of the shared
+    defaults (the OPEN_* constants above) -- so the bot no longer slows/halts
+    mid-straight or crawls into corners. Corners come from the LINES
+    (VisionPipeline); the front ultrasonic on the MCU stays the hard wall
+    guard. NO pillars/magenta."""
     bias = _centering_bias(walls)
     speed, note = CRUISE_PCT, "open"
-    if walls.front > FRONT_HALT:
-        speed, note = 0, f"front {walls.front:.2f} HALT"
-    elif walls.front > FRONT_CORNER:
-        speed, note = min(CRUISE_PCT, CORNER_SPEED), "corner ahead -> slow"
+    if walls.front > OPEN_FRONT_CORNER:             # wall/corner CLOSE ahead
+        speed = min(CRUISE_PCT, OPEN_CORNER_SPEED)  # keep power, just ease off...
+        bias += _avoid_bias(walls)                  # ...and STEER toward the open side
+        note = f"wall {walls.front:.2f} -> steer around"
+        if walls.front > OPEN_FRONT_HALT:           # band truly filled: last-resort stop
+            speed, note = 0, f"wall {walls.front:.2f} HALT"
     bias = max(-MAX_TOTAL_BIAS, min(MAX_TOTAL_BIAS, bias))
     return VisionCommand(int(speed), int(bias), note, 0)
 
@@ -330,15 +378,32 @@ def decide_obstacle(walls, red, green):
         bias += pbias
         speed = min(speed, _throttle(target.distance_mm))
         notes.append(f"{target.color}@{target.distance_mm:.0f}mm x{target.cx} bias{pbias:+d}")
-    if walls.front > FRONT_HALT:
-        speed = 0
-        notes.append("front HALT")
+    if walls.front > FRONT_CORNER:
+        speed = min(speed, CORNER_SPEED)
+        bias += _avoid_bias(walls)                  # steer around a wall ahead
+        notes.append(f"wall {walls.front:.2f} -> steer around")
+        if walls.front > FRONT_HALT:
+            speed = 0
+            notes.append("HALT")
     bias = max(-MAX_TOTAL_BIAS, min(MAX_TOTAL_BIAS, bias))
     return VisionCommand(int(speed), int(bias), "; ".join(notes) or "obstacle: clear", 0)
 
 
 def annotate(frame, red, green, marker, walls, cmd):
     """Draw ROIs, detections and the command for the standalone/debug view."""
+    # LINE ROI (yellow box) + highlight detected line pixels so threshold tuning
+    # is visual: orange/blue tape must light up inside this box, counts >= LINE_MIN_PIX.
+    roi_bgr = frame[LINE_T:LINE_B, LINE_L:LINE_R]
+    roi_hsv = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2HSV)
+    om = cv2.inRange(roi_hsv, ORANGE_LINE_LO, ORANGE_LINE_HI)
+    bm = cv2.inRange(roi_hsv, BLUE_LINE_LO, BLUE_LINE_HI)
+    roi_bgr[om > 0] = (0, 140, 255)
+    roi_bgr[bm > 0] = (255, 80, 0)
+    cv2.rectangle(frame, (LINE_L, LINE_T), (LINE_R, LINE_B), (0, 255, 255), 1)
+    cv2.line(frame, (LINE_L, LINE_FIRE_ROW), (LINE_R, LINE_FIRE_ROW), (0, 255, 255), 1)
+    cv2.putText(frame, f"line o={int(cv2.countNonZero(om))} b={int(cv2.countNonZero(bm))}",
+                (LINE_L + 4, LINE_T + 14), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
+
     cv2.rectangle(frame, (FRONT_L, FRONT_T), (FRONT_R, FRONT_B), (200, 200, 0), 1)
     cv2.rectangle(frame, (LEFT_L, SIDE_T), (LEFT_R, SIDE_B), (200, 120, 0), 1)
     cv2.rectangle(frame, (RIGHT_L, SIDE_T), (RIGHT_R, SIDE_B), (200, 120, 0), 1)
@@ -362,17 +427,58 @@ def annotate(frame, red, green, marker, walls, cmd):
 # ===========================================================================
 # Camera setup (shared by the pipeline thread and the standalone mode)
 # ===========================================================================
-def _open_camera(index):
-    """Open the camera configured for LOW LATENCY: MJPG (less USB bandwidth than
-    raw YUYV, so the requested fps is actually delivered) and a 1-frame buffer —
-    otherwise V4L2 queues stale frames and the car acts on where a wall/pillar
-    WAS several frames ago (the classic vision-robot crash cause)."""
-    cap = cv2.VideoCapture(index)
+def _camera_candidates(preferred):
+    """Places to look for a REAL camera, best first.
+
+    UNO Q gotcha (found on hardware): /dev/video0 and /dev/video1 are the
+    Qualcomm Venus video CODEC (decoder/encoder), NOT cameras — opening index 0
+    always fails. A USB webcam enumerates at /dev/video2+ and, more reliably,
+    under /dev/v4l/by-id/usb-* which can only match USB devices. So: by-id
+    paths first, then the preferred index, then a 0..9 index sweep."""
+    cands = sorted(glob.glob("/dev/v4l/by-id/usb-*video-index0"))
+    if isinstance(preferred, int):
+        cands.append(preferred)
+        cands.extend(i for i in range(10) if i != preferred)
+    else:
+        cands.append(preferred)
+        cands.extend(range(10))
+    return cands
+
+
+def _configure(cap):
+    """LOW LATENCY: MJPG (less USB bandwidth than raw YUYV, so the requested fps
+    is actually delivered) and a 1-frame buffer — otherwise V4L2 queues stale
+    frames and the car acts on where a wall/pillar WAS several frames ago."""
     cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_W)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    return cap
+
+
+def _open_camera(index):
+    """Open the first candidate that opens AND delivers a frame (the Venus codec
+    nodes fail one of the two). Returns a closed VideoCapture when none works."""
+    for cand in _camera_candidates(index):
+        try:
+            cap = cv2.VideoCapture(cand, cv2.CAP_V4L2) if isinstance(cand, str) \
+                  else cv2.VideoCapture(cand)
+        except Exception:  # noqa: BLE001 - backend quirks on odd nodes
+            continue
+        if not cap.isOpened():
+            cap.release()
+            continue
+        _configure(cap)
+        ok, _ = cap.read()
+        if ok:
+            print(f"[vision] camera found at {cand!r}", flush=True)
+            return cap
+        cap.release()
+    print("[vision] NO usable camera. Note: on the UNO Q /dev/video0-1 are the "
+          "Qualcomm video CODEC, not cameras — a USB webcam appears as "
+          "/dev/video2+ (or /dev/v4l/by-id/usb-*). If none is listed, the "
+          "webcam is not enumerated: check the powered USB hub / cable.",
+          flush=True)
+    return cv2.VideoCapture()   # closed sentinel; callers check isOpened()
 
 
 # ===========================================================================
@@ -390,6 +496,9 @@ class VisionPipeline:
         self.stage = stage
         self.turn_direction = 0                # latched +90/-90 from the FIRST corner line
         self.last = None
+        self.last_lines = (0, 0)               # latest (orange_px, blue_px) for the UI
+        self.last_frame = None                 # most recent frame (for the Web UI preview)
+        self._overlay = None                   # (red, green, walls, cmd) for the annotated feed
         self._thread = None
         self._stop = threading.Event()
         # corner-trigger latch state (fire a turn once per corner)
@@ -462,6 +571,7 @@ class VisionPipeline:
     def process(self, frame):
         if frame.shape[1] != FRAME_W or frame.shape[0] != FRAME_H:
             frame = cv2.resize(frame, (FRAME_W, FRAME_H))
+        self.last_frame = frame                # for the Web UI live preview
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         walls = detect_walls(hsv)
 
@@ -471,6 +581,7 @@ class VisionPipeline:
             cmd = decide(walls, red, green, self.pillar_enabled, self.wall_enabled)
             cmd.turn = self._latch_corner(cmd.turn)   # debounce + one-shot
             self.last = cmd
+            self._overlay = (red, green, walls, cmd)
             return cmd, red, green, walls
 
         # --- stage path: the orange/blue line is the PRIMARY corner trigger ---
@@ -481,14 +592,40 @@ class VisionPipeline:
             red = green = None
             cmd = decide_open(walls)
 
-        o, b = detect_lines(hsv)
+        o, b, o_row, b_row = detect_lines(hsv)
+        self.last_lines = (o, b)                          # live counts for the UI/tuning
         line_present = max(o, b) >= LINE_MIN_PIX
         if line_present and self.turn_direction == 0:     # latch direction on the FIRST line
             self.turn_direction = ORANGE_TURN if o >= b else BLUE_TURN
-        suggestion = self.turn_direction if line_present else 0
+        # ENTRY lines only: every corner zone has BOTH colours (entry + exit). Counting
+        # any line double-counts corners -- the exit line is crossed right as the sweep
+        # ends, past cooldown, at_target true again. The mat's semantics: the colour that
+        # latched the direction is the ENTRY colour for the whole run; only it may fire.
+        dominant = ORANGE_TURN if o >= b else BLUE_TURN
+        row = o_row if dominant == ORANGE_TURN else b_row
+        near = row >= LINE_FIRE_ROW                       # low in frame = under the nose
+        suggestion = self.turn_direction if (line_present and near
+                                             and dominant == self.turn_direction) else 0
+        if max(o, b) > LINE_MIN_PIX // 2:                 # surface it while tuning
+            cmd.note = f"{cmd.note} | line o={o} b={b} row={row}"
         cmd.turn = self._latch_corner(suggestion)         # debounce -> one fire per physical line
         self.last = cmd
+        self._overlay = (red, green, walls, cmd)
         return cmd, red, green, walls
+
+    def snapshot_jpeg(self, quality=70, overlay=True):
+        """Encode the latest frame to JPEG bytes for the Web UI live view. Returns
+        None if no frame yet. With overlay=True, draws the detection boxes/ROIs so
+        the feed doubles as a vision-calibration view."""
+        f = self.last_frame
+        if f is None:
+            return None
+        if overlay and self._overlay is not None:
+            f = f.copy()                        # don't scribble on the shared frame
+            red, green, walls, cmd = self._overlay
+            annotate(f, red, green, None, walls, cmd)
+        ok, buf = cv2.imencode(".jpg", f, [int(cv2.IMWRITE_JPEG_QUALITY), int(quality)])
+        return buf.tobytes() if ok else None
 
     def _run(self):
         cap = _open_camera(self.camera_index)

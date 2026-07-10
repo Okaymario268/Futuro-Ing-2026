@@ -61,20 +61,31 @@ def parallel_park(direction):
     print("[park] done", flush=True)
 
 
-controller = RaceController(stage="obstacle", on_park=parallel_park)
-camera = VisionPipeline(stage="obstacle", on_command=controller.on_vision)
+# --- Standalone entry point --------------------------------------------------
+# Only runs when this file IS the App Lab program (swapped in as main.py). When
+# main.py imports parallel_park for its in-UI launcher, __name__ != "__main__",
+# so nothing below runs (no double camera / double App.run()).
+if __name__ == "__main__":
+    USE_START_BUTTON = True   # True = wait for the physical START button + 3-2-1 countdown
+                              # (WRO rule 9.6). False = auto-start after START_DELAY_S.
+    START_DELAY_S = 2.0       # used only when USE_START_BUTTON is False
 
-START_DELAY_S = 2.0
+    controller = RaceController(stage="obstacle", on_park=parallel_park)
+    camera = VisionPipeline(stage="obstacle", on_command=controller.on_vision)
 
+    def _begin():
+        io.set_start_button(USE_START_BUTTON)     # sync the toggle to the MCU + arm the gate
+        if USE_START_BUTTON:
+            print("[obstacle] armed — press the START button (3-2-1 on the LED matrix)...", flush=True)
+            while not io.start_ready():
+                time.sleep(0.05)
+        else:
+            time.sleep(START_DELAY_S)
+        controller.start()
 
-def _begin():
-    time.sleep(START_DELAY_S)
-    controller.start()
+    print("[obstacle] Stage 2 — Obstacle Challenge: starting camera + run", flush=True)
+    io.start_heartbeat()   # MCU stops the motor if this program dies mid-run
+    camera.start()
+    threading.Thread(target=_begin, daemon=True).start()
 
-
-print("[obstacle] Stage 2 — Obstacle Challenge: starting camera + run", flush=True)
-io.start_heartbeat()   # MCU stops the motor if this program dies mid-run
-camera.start()
-threading.Thread(target=_begin, daemon=True).start()
-
-App.run()
+    App.run()

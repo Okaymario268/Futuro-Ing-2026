@@ -1,0 +1,22 @@
+# Standalone HW-843 / VL53L0X bench-test sketch (NOT the robot app).
+# App Lab resolves sketch libraries from THIS file -- see the main sketch's
+# sketch.yaml for the full explanation. Same board + same VL53L0X pin as the robot.
+#
+# Board: Arduino UNO Q -> MCU STM32U585 / Zephyr -> FQBN arduino:zephyr:unoq
+# Leave fqbn: blank -- App Lab fills it from the connected UNO Q.
+# Arduino_RouterBridge (feeds the Monitor panel) ships with the App Lab template,
+# so it is not pinned here; App Lab pulls it (and MsgPack/DebugLog) in on build.
+
+profiles:
+  default:
+    fqbn:
+    platforms:
+      - platform: arduino:zephyr
+    libraries:
+      # Adafruit driver for the VL53L0X ToF laser (HW-843 breakout). Wraps the ST
+      # vendor API over plain Wire. Building it on the beta arduino:zephyr / UNO Q
+      # core is unverified -- this bench sketch is the place to prove it compiles
+      # and ranges before trusting the library in the robot firmware.
+      - Adafruit_VL53L0X (1.2.5)
+
+default_profile: default

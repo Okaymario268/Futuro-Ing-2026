@@ -25,20 +25,28 @@ from vision import VisionPipeline
 from fsm import RaceController
 import bridge_io as io
 
-START_DELAY_S = 2.0   # time to place the car / clear hands after pressing Run
+# --- Standalone entry point (only when run directly, not when imported) -------
+if __name__ == "__main__":
+    USE_START_BUTTON = True   # True = wait for the physical START button + 3-2-1 countdown
+                              # (WRO rule 9.6). False = auto-start after START_DELAY_S.
+    START_DELAY_S = 2.0       # used only when USE_START_BUTTON is False
 
-controller = RaceController(stage="open")
-camera = VisionPipeline(stage="open", on_command=controller.on_vision)
+    controller = RaceController(stage="open")
+    camera = VisionPipeline(stage="open", on_command=controller.on_vision)
 
+    def _begin():
+        io.set_start_button(USE_START_BUTTON)     # sync the toggle to the MCU + arm the gate
+        if USE_START_BUTTON:
+            print("[open] armed — press the START button (3-2-1 on the LED matrix)...", flush=True)
+            while not io.start_ready():
+                time.sleep(0.05)
+        else:
+            time.sleep(START_DELAY_S)
+        controller.start()
 
-def _begin():
-    time.sleep(START_DELAY_S)
-    controller.start()
+    print("[open] Stage 1 — Open Challenge: starting camera + run", flush=True)
+    io.start_heartbeat()   # MCU stops the motor if this program dies mid-run
+    camera.start()
+    threading.Thread(target=_begin, daemon=True).start()
 
-
-print("[open] Stage 1 — Open Challenge: starting camera + run", flush=True)
-io.start_heartbeat()   # MCU stops the motor if this program dies mid-run
-camera.start()
-threading.Thread(target=_begin, daemon=True).start()
-
-App.run()   # keep the program alive; work happens in the camera thread + FSM
+    App.run()   # keep the program alive; work happens in the camera thread + FSM

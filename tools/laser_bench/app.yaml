@@ -1,0 +1,14 @@
+# App Lab manifest del BENCH del láser (app "laser").
+# El brick web_ui sirve assets/index.html + una API REST en el puerto 7000
+# (el default de App Lab; su botón "Open Web UI" lo abre solo).
+#
+# Para cargarlo en App Lab: crea/abre el app "laser", asegúrate de tener el brick
+# "Web UI" y la librería VL53L0X (ver sketch/sketch.yaml), y pega sketch/, python/
+# y assets/ de esta carpeta.
+
+name: "FuturoIng — Laser Bench"
+description: "Muestra la distancia del VL53L0X (front) que el MCU publica por el RouterBridge."
+ports: []
+bricks:
+  - arduino:web_ui: {}
+icon: 📏
