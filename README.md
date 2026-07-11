@@ -2,7 +2,7 @@
 
 <img src="images/panama-flag.png" alt="Bandera de Panamá" width="130" />
 
-# Robotech La Salle
+# WongWongLinares La Salle
 
 ### FuturoIng — Self-Driving Vehicle
 
