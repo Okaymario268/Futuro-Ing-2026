@@ -22,11 +22,6 @@
   <img src="https://img.shields.io/badge/MPU--6050-IMU-2C3E50?style=for-the-badge" alt="MPU-6050" />
 </p>
 
-<br>
-
-<img src="images/placeholders/robot-hero.svg" alt="FuturoIng robot — photo coming soon" width="660" />
-<!-- TODO: replace with v-photos/hero.jpg once the robot is photographed -->
-
 </div>
 
 ---
