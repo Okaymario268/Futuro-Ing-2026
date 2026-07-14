@@ -65,7 +65,7 @@ This repository follows the official **WRO Future Engineers** engineering-materi
 
 - **`src`** — control software for every programmed component, plus all build/dependency artifacts (`sketch.yaml`, `requirements.txt`).
 - **`v-photos`** — 6 photos of the vehicle (every side, top and bottom).
-- **`t-photos`** — 2 photos of the team (one official, one fun).
+- **`t-photos`** — team photo.
 - **`video`** — `video.md` with the link to the driving-demonstration video.
 - **`schemes`** — schematic diagrams of the electromechanical components and how they connect.
 - **`other`** — supporting documentation, build notes and the project website.
@@ -84,7 +84,7 @@ This repository follows the official **WRO Future Engineers** engineering-materi
 |--------|----------|
 | 📂 [`src`](src/) | Arduino sketch, Python Web UI, web assets + build artifacts |
 | 📷 [`v-photos`](v-photos/) | Vehicle photos (every side, top & bottom) |
-| 👥 [`t-photos`](t-photos/) | Team photos (official + fun) |
+| 👥 [`t-photos`](t-photos/) | Team photo |
 | 🎥 [`video`](video/) | Driving-demonstration video link |
 | 🔌 [`schemes`](schemes/) | Wiring / electronic schematics |
 | 📦 [`other`](other/) | Docs, build notes & project website |
@@ -387,9 +387,7 @@ The driving-demonstration video link lives in [`video/video.md`](video/video.md)
 
 <div align="center">
 
-| <img src="images/placeholders/team-official.svg" width="240" /> | <img src="images/placeholders/team-fun.svg" width="240" /> |
-|:--:|:--:|
-| **Official team photo** | **Team (fun)** |
+<img src="t-photos/team-photo.png" alt="Robotech La Salle — team photo" width="380" />
 
 </div>
 
