@@ -16,6 +16,8 @@ is the documented failure mode (drift can clip a magenta marker -> ZERO parking 
 The sequence below is a tunable STARTING FRAMEWORK; strongly consider adding one
 side-facing ToF/ultrasonic sensor to localise the slot opening and the rear wall.
 All angles/speeds/durations are starting points to tune on the real mat.
+
+Every variable and function of the app is documented in src/DOCUMENTATION.txt.
 """
 import threading
 import time
@@ -26,7 +28,19 @@ from vision import VisionPipeline
 from fsm import RaceController
 import bridge_io as io
 
-# ---- Parallel-park (reverse-arc) tuning — Stage 2 only --------------------------------
+# ===========================================================================
+# BOT CONFIGURATION — every knob of THIS file lives here, first lines of code.
+# (Race tuning is at the top of fsm.py, camera tuning at the top of vision.py,
+#  MCU pins/speeds at the top of sketch/sketch.ino — see src/DOCUMENTATION.txt)
+# ===========================================================================
+
+# ---- Start gate --------------------------------------------------------------------
+USE_START_BUTTON = True   # True  = wait for the physical START button + 3-2-1 countdown
+                          #         on the LED matrix (WRO rule 9.6 competition start).
+                          # False = auto-start START_DELAY_S after launch (bench tests).
+START_DELAY_S    = 2.0    # s before auto-start (used only when USE_START_BUTTON is False)
+
+# ---- Parallel-park (reverse-arc) tuning — Stage 2 only ------------------------------
 PARK_SPEED   = 45    # % drive speed during the maneuver (slow + controlled)
 ENTRY_ANGLE  = 75    # deg: swing the tail toward the curb/slot
 STRAIGHTEN   = 70    # deg: counter-steer back toward the lane while still reversing
@@ -61,19 +75,30 @@ def parallel_park(direction):
     print("[park] done", flush=True)
 
 
-controller = RaceController(stage="obstacle", on_park=parallel_park)
-camera = VisionPipeline(stage="obstacle", on_command=controller.on_vision)
+# --- Standalone entry point --------------------------------------------------
+# Only runs when this file IS the App Lab program (swapped in as main.py). When
+# main.py imports parallel_park for its in-UI launcher, __name__ != "__main__",
+# so nothing below runs (no double camera / double App.run()).
+if __name__ == "__main__":
+    controller = RaceController(stage="obstacle", on_park=parallel_park)
+    camera = VisionPipeline(stage="obstacle", on_command=controller.on_vision)
+    controller.pipeline = camera   # keeps the shared direction latch in step
 
-START_DELAY_S = 2.0
+    def _begin():
+        """Release the run: honour the start gate (physical button + countdown on
+        the MCU) or the plain bench timer, then put the race controller in DRIVE."""
+        io.set_start_button(USE_START_BUTTON)     # sync the toggle to the MCU + arm the gate
+        if USE_START_BUTTON:
+            print("[obstacle] armed — press the START button (3-2-1 on the LED matrix)...", flush=True)
+            while not io.start_ready():
+                time.sleep(0.05)
+        else:
+            time.sleep(START_DELAY_S)
+        controller.start()
 
+    print("[obstacle] Stage 2 — Obstacle Challenge: starting camera + run", flush=True)
+    io.start_heartbeat()   # MCU stops the motor if this program dies mid-run
+    camera.start()
+    threading.Thread(target=_begin, daemon=True).start()
 
-def _begin():
-    time.sleep(START_DELAY_S)
-    controller.start()
-
-
-print("[obstacle] Stage 2 — Obstacle Challenge: starting camera + run", flush=True)
-camera.start()
-threading.Thread(target=_begin, daemon=True).start()
-
-App.run()
+    App.run()

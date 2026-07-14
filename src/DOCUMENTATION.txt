@@ -1,0 +1,552 @@
+================================================================================
+ FuturoIng — WRO 2026 Future Engineers robot
+ CODE DOCUMENTATION — every variable, function, RPC and API of the app
+================================================================================
+ Platform : Arduino UNO Q (App Lab) — Linux (Python) side + MCU (sketch) side
+ Repo     : https://github.com/Okaymario268/Futuro-Ing-2026
+ Updated  : 2026-07-13 (side ultrasonics: rangers own the Stage-1 corridor)
+
+ RULE OF THE CODEBASE: every tunable variable lives at the TOP of its file, in
+ a block marked "BOT CONFIGURATION". Nothing below those blocks needs editing
+ to tune the robot on the mat.
+
+--------------------------------------------------------------------------------
+ 1. SYSTEM OVERVIEW
+--------------------------------------------------------------------------------
+
+   USB camera                     Linux side (Python)                MCU side
+  ┌──────────┐   frames   ┌──────────────────────────┐   RPC   ┌──────────────┐
+  │ Logitech ├───────────>│ vision.py  VisionPipeline│         │  sketch.ino  │
+  └──────────┘            │   detections -> commands │         │              │
+                          │            │             │ Bridge  │ 50 Hz gyro PD│
+                          │            v             │  .call  │ steering loop│
+                          │ fsm.py   RaceController  ├────────>│ L298N motor  │
+                          │   laps / corners / park  │         │ HC-SR04 block│
+                          │            │             │         │ start button │
+                          │            v             │         │ LED matrix   │
+                          │ bridge_io.py (RPC layer) │         │ watchdog     │
+                          └──────────────────────────┘         └──────────────┘
+
+  * The MCU is a stage-agnostic "motion server": it holds/turns a gyro heading
+    with a PD loop, drives the motor, hard-blocks forward motion when the front
+    ultrasonic sees a wall under 75 mm, measures the LEFT/RIGHT side rangers,
+    and stops everything if Python's watchdog pings go silent.
+  * The Python side decides WHAT to do: vision produces one command per camera
+    frame; the FSM counts corner lines, breaks deadlocks, and ends the run.
+  * Divide of authority (since 2026-07-13): the CAMERA reads the orange/blue
+    corner lines (and Stage-2 pillars); the SIDE ULTRASONICS own the corridor
+    in Stage 1 (lane centering, corner-wall slowdown, and a ranger corner
+    trigger that works even when the camera misses its line); the GYRO holds
+    the heading. Nothing but the MCU ever touches the servo.
+
+--------------------------------------------------------------------------------
+ 2. FILE MAP
+--------------------------------------------------------------------------------
+  sketch/sketch.ino        MCU firmware: gyro PD heading-hold, motor, ultrasonic
+                           forward-block, start button + LED countdown, watchdog,
+                           and all the RPCs listed in section 5.
+  sketch/sketch.yaml       Build profile (arduino:zephyr platform, Servo >= 1.3.0).
+  python/bridge_io.py      The ONLY place Python talks to the MCU (RPC wrappers).
+  python/vision.py         OpenCV pipeline: pillars, walls, floor, corner lines.
+  python/fsm.py            RaceController — shared lap/corner state machine.
+  python/stage1_open.py    STAGE 1 entry point (open challenge, no obstacles).
+  python/stage2_obstacle.py STAGE 2 entry point (pillars + parallel park).
+  python/main.py           Manual/bench Web UI backend (REST API, section 6).
+  assets/index.html        The Web UI page (controls, live sensors, camera feed).
+  app.yaml                 App Lab manifest (web_ui brick, port 7000).
+  ../tools/simulator.py    Virtual track that runs the REAL vision/fsm/bridge code
+                           against a simulated MCU + rendered camera (incl. the
+                           side rangers as raycasts). Flags:
+                           --layout fixed|random (600/1000 mm corridor per side),
+                           --wall-color / --inner-color / --outer-color
+                           black|wood|gray|random, --seed, --video,
+                           --direction ccw|cw (blue-first / orange-first course),
+                           --no-lines (camera-blind: rangers must carry the run).
+                           Reports laps, corners, clearance, latched direction
+                           vs expected, and the post-turn heading-recovery
+                           metric (PASS < 8 deg).
+
+  HOW TO RUN A STAGE: in App Lab set the app's Python program to stage1_open.py
+  (or stage2_obstacle.py), run it, place the car, press the START button ->
+  3-2-1 countdown on the LED matrix -> the run begins. With USE_START_BUTTON =
+  False it instead auto-starts START_DELAY_S seconds after launch.
+  main.py is the bench app: manual sliders + an in-browser stage launcher
+  (WRO note: wireless must be OFF in official runs — bench use only).
+
+--------------------------------------------------------------------------------
+ 3. CONFIGURATION REFERENCE — every tunable variable
+--------------------------------------------------------------------------------
+
+ 3.1 sketch/sketch.ino  (MCU — pins, drive, PD gains, ultrasonic, start, watchdog)
+ ---------------------------------------------------------------------------------
+  IMU_BUS            Wire     I2C bus for the GY-521 (try Wire1/Wire2 if WHO_AM_I
+                              is not 0x68; needs zephyr core >= 0.55.2).
+  SERVO_PIN          9        Steering servo signal pin.
+  MOTOR_ENB          4        L298N ENB (PWM speed). Must be PWM-capable.
+  MOTOR_IN4          3        L298N IN4 (direction).
+  MOTOR_IN3          2        L298N IN3 (direction).
+  GYRO_SDA_PIN       A4       Reference only — I2C is fixed by IMU_BUS.
+  GYRO_SCL_PIN       A5       Reference only.
+  START_BTN_PIN      A1       Momentary button to GND (internal pull-up; the
+                              analog pins are plain GPIOs, A4/A5 stay I2C).
+                              A press RECALIBRATES THE GYRO (~2.6 s, car must
+                              sit STILL) + zeroes the heading BEFORE the 3-2-1
+                              countdown -> the run starts drift-free.
+  US_TRIG_PIN        8        HC-SR04 trigger (FRONT sensor).
+  US_ECHO_PIN        10       HC-SR04 echo — MUST go through a 1k/2k divider
+                              (5 V sensor, 3.3 V GPIO).
+  FRONT_HALT_MM      75       MCU blocks FORWARD drive when the wall is closer.
+  FRONT_RELEASE_MM   100      ...and releases once clearance exceeds this
+                              (hysteresis so it doesn't chatter).
+  FRONT_CLEAR_MM     2000     Readings at/over this = "nothing in range" (-1).
+  US_PING_MS         60       Ping period (datasheet minimum: residual echoes).
+  US_LEFT_TRIG_PIN   5        LEFT side ranger trigger.   >>> NOT A4/A5: those
+  US_LEFT_ECHO_PIN   6        LEFT side ranger echo (1k/2k divider!). A4/A5 are
+                              the GYRO'S I2C BUS — an HC-SR04 echo pin idles LOW
+                              and would clamp SCL, killing the gyro and with it
+                              every turn, in BOTH driving directions. <<<
+  US_RIGHT_TRIG_PIN  A2       RIGHT side ranger trigger (analog pins are GPIOs).
+  US_RIGHT_ECHO_PIN  A3       RIGHT side ranger echo (1k/2k divider!).
+  SIDE_PING_MS       30       Left/right alternate; each side refreshes ~60 ms.
+                              Sampling is POLLED (no attachInterrupt: EXTI-line
+                              collision risk on the Zephyr core) + median-of-3.
+  SIDE_CLEAR_MM      2500     Side readings at/over this = open corridor (-1).
+  SIDE_TIMEOUT_US    30000    No echo edge this long after a trigger -> -1.
+  USE_START_BUTTON   1        1 = boot with the button+countdown gate armed.
+  COUNTDOWN_MS       1000     ms per digit of the 3-2-1 countdown.
+  CENTER             79       Servo angle for straight ahead (MEASURED on car).
+  STEER_TRAVEL       35       Max mechanical deflection from CENTER (deg).
+  KP                 1.2      PD proportional gain (deg servo per deg error).
+  KD                 0.10     PD damping gain (deg servo per deg/s yaw rate).
+  CORRECTION_SIGN    -1       Flip if the car steers INTO the error. Always flip
+                              together with GYRO_SIGN.
+  LOOP_MS            20       Control period (50 Hz).
+  MOTOR_SPEED        255      PWM duty at 100 % speed (full send; 200 = gentler).
+  MOTOR_MIN_PWM      70       Duty at 1 % — lowest duty that still turns the
+                              drivetrain (L298N stalls below, doesn't crawl).
+  TARGET_TOL         5.0      deg: |target-heading| under this = "at target".
+  WATCHDOG_MS        1500     Motor auto-stop if Python's pings go silent.
+  MPU_ADDR           0x68     GY-521 I2C address (AD0 low).
+  GYRO_FS_CONFIG     0x08     +/-500 deg/s full scale (headroom for snappy 90s).
+  GYRO_SENS          65.5     LSB per deg/s at +/-500.
+  GYRO_SIGN          -1       Makes "turn right = heading increases". Flip only
+                              with CORRECTION_SIGN (mounted upside-down).
+  CAL_SAMPLES        1000     Stationary samples averaged for gyro bias.
+  RATE_DEADBAND      0.5      deg/s ignored as noise (kills heading creep).
+
+ 3.2 python/vision.py  (camera, colours, ROIs, driving policy, stage overrides)
+ ---------------------------------------------------------------------------------
+  FRAME_W, FRAME_H   320x240  Processing resolution. If changed, scale FOCAL_PX,
+                              MIN_BLOB_AREA, LINE_MIN_PIX, K_PILLAR with it.
+  CAMERA_INDEX       0        Preferred camera index (auto-discovery tries
+                              /dev/v4l/by-id/usb-* first — on the UNO Q,
+                              /dev/video0/1 are the Qualcomm codec, NOT cameras).
+  FOCAL_PX           350.0    Pinhole focal length at 320x240. Calibrate once:
+                              FOCAL_PX = pixel_height * distance_mm / 100.
+  PILLAR_H_MM        100.0    Real pillar height (WRO 50x50x100 mm sign).
+  MARKER_H_MM        100.0    Real magenta parking-marker height.
+  RED1_LO/HI, RED2_LO/HI      HSV bands for red pillars (red wraps hue 0/179,
+                              so it needs two bands).
+  GREEN_LO/HI                 HSV band for green pillars.
+  MAGENTA_LO/HI               HSV band for the parking markers.
+  MIN_BLOB_AREA      75       px^2 — ignore smaller specks.
+  FRONT_T/B/L/R               Front ROI (mid-frame band): "wall ahead?" coverage.
+  SIDE_T/B, LEFT_*, RIGHT_*   Side strips: which side is more walled.
+  WHITE_LO/HI                 HSV band for the FLOOR. DOUBLE DUTY: walls/
+                              obstacles are COLOUR-AGNOSTIC — obstacle = NOT this
+                              mask (minus the red/green pillar colours), so
+                              randomly-coloured interior walls (wood, gray...)
+                              register exactly like black ones. Widened on the
+                              real mat 2026-07-13 to V>=90 / S<=90: the mat is
+                              white AND grey, and at the old V>=140 the grey
+                              zones + shadowed white tinted red ("wall") on the
+                              live feed and injected phantom centering bias.
+                              Floor = low-saturation and not dark. If real walls
+                              start passing as floor, raise V toward 110; if mat
+                              corners still tint red, drop V toward 75.
+  FLOOR_T/B                   Floor band for the corner-direction fallback.
+  LINE_T/B/L/R                Corner-line ROI (sees the line early).
+  LINE_FIRE_ROW      0.80*H   The line only FIRES once its pixel-centroid row is
+                              below this (= near the nose). Lower value = fires
+                              earlier/farther; raise = fires later/closer.
+  ORANGE_LINE_LO/HI           HSV band for the orange corner line.
+  BLUE_LINE_LO/HI             HSV band for the blue corner line.
+  LINE_MIN_PIX       200      px inside the ROI to call a line "present".
+  ORANGE_TURN        +90      Turn latched when orange is seen first (CW).
+  BLUE_TURN          -90      Turn latched when blue is seen first (CCW).
+  CRUISE_PCT         50       Drive % when the path is clear (90 -> 50 -> 30 ->
+                              50, 2026-07-13: 30% proved too slow on the mat).
+                              50% = duty ~162 on the MCU's [70..255] mapping --
+                              far clear of L298N stall.
+  SLOW_DIST_MM       500      Start slowing for a pillar inside this distance.
+  HALT_DIST_MM       150      Full stop for a pillar inside this distance.
+  MAX_BIAS_DEG       18       Strongest single pillar-pass bias.
+  MAX_TOTAL_BIAS     28       Clamp on centering+pillar bias (deg).
+  FRONT_CORNER       0.45     Front-obstacle coverage above this = wall ahead
+                              (shared/legacy + stage 2).
+  FRONT_HALT         0.88     ...above this = wall right in front -> halt.
+  AVOID_BIAS         24       deg of hard steer toward the OPEN side at a wall.
+  SIDE_DIFF          0.18     L/R wall gap needed to pick a turn direction.
+  FLOOR_DIFF         0.12     L/R floor gap fallback when walls are ambiguous.
+  WALL_GAIN          26.0     deg of centering bias per unit of L-R wall gap.
+  CORNER_SPEED       40       Drive % while committing to a corner. Below the 50%
+                              cruise so the slowdown is real; duty ~144 stays
+                              above the L298N stall floor (duty 70).
+  CORNER_STREAK      3        Consecutive frames before a corner fires.
+  CLEAR_STREAK       4        Consecutive clear frames before re-arming.
+  (OPEN_FRONT_CORNER / OPEN_FRONT_HALT / OPEN_CORNER_SPEED were REMOVED
+   2026-07-13: decide_open() now returns cruise + zero bias — Stage 1 wall
+   authority lives in fsm.py's side-ranger logic. The camera bands look OVER
+   the 100 mm walls, so they measured background, not walls.)
+  RED_TARGET_X       0.17*W   STAGE 2: keep the red blob at this column ->
+                              the car passes it on the RIGHT.
+  GREEN_TARGET_X     0.83*W   STAGE 2: green kept right -> passed on the LEFT.
+  K_PILLAR           0.12     deg of bias per px of pillar x-error (at 320x240).
+
+ 3.3 python/fsm.py  (race controller)
+ ---------------------------------------------------------------------------------
+  TOTAL_CORNERS      12       Corners before the run ends = 3 laps x 4 corners
+                              (the WRO run; the lap counts on EXIT of corner #12).
+                              A practice session had left this at 16 — that IS
+                              the "never stops after 3 laps" symptom.
+  FINISH_COAST_S     1.6      s to coast OUT of corner #12 before stopping.
+  CORNER_COOLDOWN_S  2.5      Ignore corner events this long after a turn (anti
+                              double-count). MUST stay under a straight-section
+                              transit or real corners get eaten -> extra laps
+                              (see KNOWN ISSUES).
+  UNSTICK_AFTER_S    2.0      s of continuous halt/wall-press before reversing.
+  UNSTICK_REVERSE_S  0.7      s of reverse pulse.
+  UNSTICK_SPEED      45       Drive % during the reverse pulse.
+  FRONT_STUCK_MM     110      Ranger under this while DRIVing = pressed on wall.
+  FRONT_CLEAR_MM     150      Reverse pulse may end early past this clearance.
+  FRONT_POLL_S       0.25     How often the FSM polls the front distance.
+  SIDE_POLL_S        0.10     How often the FSM polls the two side rangers.
+  US_CORNER_FRONT_MM 620      Ranger corner trigger: front wall nearer than this
+  US_CORNER_OPEN_MM  1200     AND the INSIDE side beyond this (or -1 = no echo)
+                              -> fire the turn toward the opening. Stage 1 only;
+                              shares the line trigger's gate (first fire wins).
+  US_CORNER_WALL_MM  900      Direction-latching (first) corner only: the OUTSIDE
+                              must still see its wall under this.
+  US_FORCE_FRONT_MM  350      Wall in the face -> turn NOW even without a clean
+                              opening (MCU still hard-blocks under 75 mm).
+  OPEN_SLOW_FRONT_MM 650      Stage 1: ease to OPEN_SLOW_PCT when the front wall
+  OPEN_SLOW_PCT      40       is nearer (replaces the camera front-band slowdown).
+  CENTER_VALID_MM    1000     Center only when BOTH sides see walls under this.
+  CENTER_DEADBAND_MM 60       |left-right| under this = centered -> bias EXACTLY 0
+                              (the gyro holds; a standing bias re-aims the hold
+                              under the MCU's vision-authority steering).
+  CENTER_GAIN        0.03     deg of centering bias per mm of (right-left) gap.
+  CENTER_MAX_BIAS    8        Clamp on the centering bias (deg).
+  TURN_DRIVE_PCT     60       Drive % FORCED during a 90-deg sweep (Ackermann
+                              cars must keep rolling to come around).
+  SWEEP_TIMEOUT_S    4.0      Failsafe end of the SWEEP LATCH. The latch is set
+                              when the FSM fires turn() and cleared the first
+                              time at_target() reports the heading arrived.
+                              While latched: speed = TURN_DRIVE_PCT, lateral
+                              bias forced to 0 (pure-PD arc -> the sweep always
+                              ends ON the 90-deg target), corner fires swallowed
+                              (and logged). The bias-freeze is LOAD-BEARING
+                              under vision-authority steering (2026-07-13):
+                              while a bias stands the MCU's target FOLLOWS the
+                              heading, so a stale bias mid-sweep would drag the
+                              target along the arc and erase the 90-deg bump.
+
+ 3.4 python/stage1_open.py + python/stage2_obstacle.py  (entry points)
+ ---------------------------------------------------------------------------------
+  USE_START_BUTTON   True     True = WRO start: physical button + 3-2-1 LED
+                              countdown. False = bench: timed auto-start.
+  START_DELAY_S      2.0      s before auto-start (only if button disabled).
+  PARK_SPEED         45       (stage 2) drive % during the parking maneuver.
+  ENTRY_ANGLE        75       (stage 2) deg of tail swing into the slot.
+  STRAIGHTEN         70       (stage 2) deg of counter-steer while reversing.
+  TUCK               5        (stage 2) deg of forward nudge to end parallel.
+  SEG_TIMEOUT        4.0      (stage 2) s safety timeout per parking segment.
+
+ 3.5 python/bridge_io.py  (RPC layer)
+ ---------------------------------------------------------------------------------
+  HEARTBEAT_PERIOD_S 0.5      Watchdog ping rate (2 Hz vs the MCU's 1.5 s trip).
+  BRIDGE_WARMUP_S    2.0      Wait before the first ping (bridge start-up).
+
+ 3.6 python/main.py + assets/index.html  (bench Web UI)
+ ---------------------------------------------------------------------------------
+  WEB_UI_PORT        7000     App Lab's default Web UI port.
+  SERVO_CENTER       79       Must match CENTER in sketch.ino.
+  TURN_DRIVE_PCT     60       Kept in step with fsm.TURN_DRIVE_PCT.
+  SERVO_CENTER_DEG   79       (JS) dial default — must match CENTER too.
+  COMPASS_SIGN       1        (JS) set -1 if the compass arrow turns backwards.
+  HEADING_POLL_MS    200      (JS) readout poll while driving.
+  SENSOR_POLL_MS     300      (JS) always-on compass/ultrasonic panel poll.
+  VISION_POLL_MS     300      (JS) vision-note poll while the camera is on.
+  START_POLL_MS      300      (JS) start-gate poll while the gate is on.
+  ANGLE_SEND_MS      60       (JS) throttle between slider angle sends.
+  US_WARN_MM / US_BLOCK_MM    (JS) 200/75 — amber/red thresholds of the bar
+                              (US_BLOCK_MM mirrors the MCU's FRONT_HALT_MM).
+
+--------------------------------------------------------------------------------
+ 4. FUNCTION REFERENCE (one line each — full details in the code docstrings)
+--------------------------------------------------------------------------------
+
+ sketch/sketch.ino
+   mpuWrite(reg, val)        Write one MPU-6050 register byte.
+   mpuReadGyroZ(&out)        Read raw gyro-Z; false on I2C error (never garbage).
+   mpuInit()                 I2C up, WHO_AM_I check, wake chip, +/-500 deg/s.
+   calibrateGyro()           Average 1000 still samples -> zero-rate bias.
+   usEchoISR()               ISR: timestamp echo edges (kept tiny).
+   ultrasonicInit()          Pins + interrupt for the front HC-SR04 (absent = -1).
+   sideStore(idx, mm)        One raw side reading -> median-of-3 output per side.
+   sideUltrasonicInit()      Pins for the LEFT/RIGHT rangers (absent = -1 = open).
+   serviceSideUltrasonics()  Polled non-blocking L/R sampler (alternating pings).
+   motorStop()               PWM 0 + both direction pins low.
+   applyDrive()              Push motorEnabled/speedPct/driveDir/frontBlocked
+                             to the L298N (duty mapped MOTOR_MIN_PWM..MOTOR_SPEED).
+   writeSteer(angle)         Servo write clamped to CENTER +/- STEER_TRAVEL.
+   showPattern(p)/clearMatrix()  Draw/clear an 8x13 LED-matrix pattern.
+   serviceStart()            Non-blocking button -> 3-2-1 -> FIRED state machine.
+   setup()                   Bring-up + RPC registration (car still for calib!).
+   loop()                    Gate, watchdog, ultrasonic service, 50 Hz PD tick.
+   (RPC handlers: see section 5.)
+
+ python/bridge_io.py
+   _call(name, *args)        Best-effort Bridge.call -> result or None (logged).
+   set_straight()/stop()     Start a run / full stop (see RPC table).
+   set_motor/set_steer(on)   Independent motor / heading-hold switches.
+   set_angle/steer_dir/turn/nudge/set_speed/set_drive_dir   Motion commands.
+   at_target()               True/False/None(=RPC failed; callers fail-open).
+   get_heading/target/steer/turns/front_mm   Readbacks.
+   get_left_mm/get_right_mm  Side rangers, mm (-1 = open corridor / no echo).
+   get_gyro_ok()             1 healthy; 0 = gyro off the I2C bus (A4/A5 loaded?).
+   set_start_button/arm_start/start_ready    Start-gate control.
+   start_heartbeat()         Launch the 2 Hz watchdog ping thread (idempotent).
+
+ python/vision.py
+   _hsv(t)                   HSV triple -> uint8 array (no per-frame allocs).
+   _mask(hsv, lo, hi)        inRange + open/close morphology.
+   _largest_blob(...)        Largest contour -> Blob with pinhole distance.
+   detect_pillars(hsv)       (red_blob, green_blob) — either may be None.
+   detect_marker(hsv)        Magenta parking-marker blob or None.
+   detect_walls(hsv)         COLOUR-AGNOSTIC obstacle (NOT-floor, minus pillar
+                             colours) coverage in front/side ROIs + floor halves.
+   detect_lines(hsv)         (orange_px, blue_px, orange_row, blue_row); red-
+                             pillar pixels subtracted from orange (anti false-fire).
+   _throttle(dist_mm)        Proximity speed ramp CRUISE..0.
+   decide(...)               Legacy/manual policy (walls + pillars, toggleable).
+   _centering_bias(walls)    Steer away from the closer side wall.
+   _avoid_bias(walls)        Hard steer toward the OPEN side at a wall ahead.
+   decide_open(walls)        STAGE 1 policy (late wall reaction, no pillars).
+   decide_obstacle(...)      STAGE 2 policy (target-x pillar passing).
+   annotate(...)             Draw ROIs/detections on a frame (tuning view).
+   _camera_candidates(pref)  Ordered list of camera devices to try.
+   _configure(cap)/_open_camera(index)   MJPG + 1-frame buffer; UNO Q quirks.
+   VisionPipeline            Camera thread; see class docstring. Key methods:
+     .start()/.stop()/.is_running()      The camera toggle.
+     .set_pillar_enabled()/.set_wall_enabled()   Behaviour switches.
+     ._latch_corner(sugg)    Debounce + one-shot corner fire per line.
+     .process(frame)         One frame -> one VisionCommand (stage policy).
+     .snapshot_jpeg()        Annotated JPEG for the UI live feed.
+     ._run()                 Thread body (read->process->callback loop).
+   _main()                   Standalone calibration mode (no board needed).
+
+ python/fsm.py — class RaceController
+   __init__(stage, on_park)  Fresh WAIT-state controller (clean per run). Set
+                             .pipeline to the VisionPipeline so ranger direction
+                             latches sync the camera's line latch.
+   start()                   Zero heading, motor+hold ON, enter DRIVE.
+   on_vision(cmd)            Per-frame tick: sweep-latch service, sensor polls,
+                             stage-1 ranger centering + corner-wall slowdown,
+                             speed/bias forwarding (bias forced 0 mid-sweep),
+                             ultrasonic stuck-watch, un-stick pulse, corner
+                             counting (line OR ranger source, direction-guarded,
+                             drop-logging), finish hand-off.
+   _us_open(v)/_us_walled(v) Side-reading classifiers (open corridor / wall).
+   _us_centering_bias()      Deadbanded lane-centering bias from the side rangers.
+   _us_corner_turn()         Ranger corner trigger (front close + inside open).
+   _begin_finish()           Corner #12 -> FINISH (stage 1) or PARK (stage 2).
+   _service_terminal()       Stop the car after the FINISH coast-out.
+   _service_unstick()        End the reverse pulse (timer or real clearance).
+   _do_park()                Run the injected parking routine, then stop.
+
+ python/stage1_open.py / stage2_obstacle.py
+   _begin()                  Wait for the start gate (or timer), then start().
+   _wait_target(timeout)     (stage 2) block until the MCU reaches its heading.
+   parallel_park(direction)  (stage 2) reverse-arc park, mirrored by direction.
+
+ python/main.py (Web UI backend — every api_* maps to an endpoint, section 6)
+   clamp(angle)              Servo angle -> legal 0..180 int.
+   set_drive_speed(pct)      Single funnel for ALL drive-speed changes.
+   _on_vision(cmd)           Manual-mode vision callback (speed/bias/turn).
+   _start_gate_poller()      Fires set_straight once the countdown finishes.
+   start_stage(stage)/start_manual()   Swap manual <-> autonomous pipelines.
+   _print_access_urls()      Print the phone-access hint at startup.
+
+ assets/index.html (JS)
+   render(angle)             Paint dial + slider + number.
+   setStatus(ok)             Connection dot.
+   postAngle/sendAngle       Send servo angle (throttled while dragging).
+   paintServo()              Collapse/expand the manual-servo module.
+   pollHeading/startPolling  Live readouts while driving.
+   norm360(a)/pollSensors    Compass arrow + ultrasonic bar (always on).
+   hit(url)                  Fire-and-forget control GET.
+   startStage(name)          Launch Stage 1/2 from the browser.
+   pollVision/pollStart      Camera-note + start-gate status.
+   paintToggle/reflectRunState  Button state painting.
+
+--------------------------------------------------------------------------------
+ 5. MCU RPC API (RouterBridge — the firmware contract, wrapped by bridge_io.py)
+--------------------------------------------------------------------------------
+  NAME              ARGS          RETURNS  WHAT IT DOES
+  set_straight      —             1        Zero heading+target, motor+hold ON.
+  turn              deg           count    Bump target heading (+right/-left);
+                                           zeroes the lateral bias (sweep owns
+                                           steering under vision-authority).
+  stop              —             0        Motor off, recenter, hold off.
+  set_motor         0|1           state    Drive motor alone on/off.
+  set_steer         0|1           state    Heading-hold alone on/off.
+  set_speed         0..100        applied  % of MOTOR_SPEED (0 halts, gyro live).
+  nudge             deg           applied  Lateral steer bias (+right/-left).
+                                           VISION-AUTHORITY: while nonzero the
+                                           PD target FOLLOWS the heading — the
+                                           car keeps the dodged direction, it
+                                           does NOT return to the old angle.
+  set_drive_dir     +1|-1         dir      Forward / reverse (PD sign flips too).
+  set_angle         0..180        angle    Manual servo (kills auto + motor).
+  steer_dir         -1|0|+1       angle    Jog steer, motor untouched.
+  get_heading       —             deg      Integrated yaw since set_straight.
+  get_target        —             deg      Current heading setpoint.
+  get_steer         —             angle    Last servo angle written.
+  get_turns         —             count    turn() calls this run.
+  get_front_mm      —             mm|-1    Front ultrasonic (-1 = no echo).
+  get_left_mm       —             mm|-1    Left side ranger (-1 = open/no echo).
+  get_right_mm      —             mm|-1    Right side ranger (-1 = open/no echo).
+  get_gyro_ok       —             0|1      0 = gyro I2C dead ~0.5 s (A4/A5!).
+  at_target         —             0|1      |target-heading| < TARGET_TOL.
+  ping              —             1        Watchdog heartbeat (arms on first).
+  set_start_button  0|1           armed    Toggle the button+countdown gate.
+  arm_start         —             fired    Re-arm the gate (wait for a press).
+  start_ready       —             0|1      1 once the countdown finished.
+
+--------------------------------------------------------------------------------
+ 6. WEB REST API (main.py bench UI — GET only, plain fetch)
+--------------------------------------------------------------------------------
+  /api/angle?angle=N       Manual servo.        /api/state         Angle sync.
+  /api/straight            Start a run.         /api/stop          Stop it all.
+  /api/turn?deg=±90        Manual corner.       /api/heading       Live readout:
+                           {heading, target, steer, front, left, right, gyro_ok}.
+  /api/speed?pct=N         Drive speed.         /api/motor?on=1|0  Motor switch.
+  /api/jog?dir=fwd|rev|stop  Motor jog.         /api/steer?on=1|0  Hold switch.
+  /api/steerpos?dir=left|center|right  Servo jog (keeps motor).
+  /api/nudge?bias=N        Lateral bias.        /api/camera?on=1|0 Vision on/off.
+  /api/pillar?on=1|0       Pillar behaviour.    /api/wall?on=1|0   Corner assist.
+  /api/vision              Latest command.      /api/stream        MJPEG feed.
+  /api/stage?name=open|obstacle|manual          In-browser stage launcher.
+                           Gate OFF: starts immediately. Gate ON: ARMS the
+                           stage (camera up, FSM in WAIT) — the physical
+                           button (gyro recal + 3-2-1) begins the run.
+  /api/startbtn?on=1|0     Start gate toggle.   /api/startstate    Gate status
+                           {enabled, ready, armed=stage waiting on the button}.
+
+--------------------------------------------------------------------------------
+ 7. WIRING SUMMARY (details in the comments at the top of sketch.ino)
+--------------------------------------------------------------------------------
+  Steering servo   signal -> D9
+  L298N            ENB -> D4, IN4 -> D3, IN3 -> D2
+  GY-521 (gyro)    SDA -> A4, SCL -> A5, VCC -> 3.3V, AD0 -> GND (addr 0x68)
+                   >>> A4/A5 belong to the gyro ALONE. Wiring anything else
+                   there (e.g. an ultrasonic's trig/echo) clamps the I2C bus,
+                   the gyro dies, and the car can't hold heading or turn — in
+                   BOTH driving directions. The Web UI shows "Gyro (I2C): FAIL"
+                   when this happens. <<<
+  START button     one leg -> A1, other leg -> GND (internal pull-up)
+  HC-SR04 FRONT    VCC -> 5V, TRIG -> D8,
+                   ECHO -> [1 kOhm] -> D10 with [2 kOhm] -> GND  (5V -> 3.3V!)
+                   Mount: front bumper centerline, ~50 mm high, aimed level.
+  HC-SR04 LEFT     VCC -> 5V, TRIG (green) -> D5,
+                   ECHO -> [1 kOhm] -> D6 with [2 kOhm] -> GND   (5V -> 3.3V!)
+  HC-SR04 RIGHT    VCC -> 5V, TRIG (green) -> A2,
+                   ECHO -> [1 kOhm] -> A3 with [2 kOhm] -> GND   (5V -> 3.3V!)
+                   Mount sides: mid-body, ~50 mm high (mid-wall), aimed square
+                   to the car's axis — they measure the corridor walls.
+
+--------------------------------------------------------------------------------
+ 8. TELEMETRY GLOSSARY (App Lab console during a run)
+--------------------------------------------------------------------------------
+  [tel] DRIVE corner=N/12 head=.. tgt=.. spd=.. bias=.. turn=.. f=.. L=.. R=..
+        ~1.4x/s heartbeat of the FSM: state, corner count, gyro heading vs
+        target, commanded speed/bias, vision's note, and the three ranger
+        distances (f front, L/R sides; -1 = open/no echo, None = RPC fail).
+  [fsm] corner N/12 -> turn(±90) [line|rangers]
+        A corner event was ACCEPTED + executed; the tag says which sensor
+        fired it (camera line, or the side-ranger corner trigger).
+  [fsm] corner fire (±90 line|rangers) DROPPED: mid-sweep | cooldown (…) |
+        contradicts latched direction
+        A fire was swallowed by a gate. Mid-sweep drops are NORMAL (the corner
+        zone's second line). Cooldown drops on real ENTRY lines are the
+        lap-undercount signature — if laps run long, look for these. Direction
+        contradictions are sensor noise (the run's direction is fixed).
+  [fsm] stuck (ultrasonic Xmm | vision halt) -> UNSTICK   Reverse pulse fired.
+  [fsm] unstick done -> DRIVE      Pulse ended (timer or clearance).
+  [fsm] 12 corners -> FINISH/PARK  Lap count complete.
+  [vision] camera found at ...     Which /dev node actually opened.
+  US: wall at X mm -> forward BLOCKED / clear -> released   MCU hard guard.
+  WATCHDOG: no ping from Python -> motor stopped            Python died mid-run.
+
+--------------------------------------------------------------------------------
+ 9. KNOWN ISSUES / FIELD-TEST HISTORY
+--------------------------------------------------------------------------------
+  * FIXED (2026-07-11) — "kept the angle of the last rotation": after a corner
+    the bot drove skewed instead of parallel. Root cause: the MCU steers
+    servo = PD + steerBias, so a STANDING lateral bias settles at a heading
+    error of bias/KP (up to ~23 deg at the 28-deg clamp). The old colour-blind
+    (black-band) wall detection saw only the black outer wall and not the wood
+    inner wall -> constant one-sided centering bias -> constant skew. Fixes:
+    (1) colour-agnostic NOT-floor wall detection restores symmetric centering
+    (bias self-cancels when centered), (2) the sweep latch runs every 90-deg
+    arc pure-PD (bias forced 0), so a stale bias can't bend the endpoint.
+    Verified in sim: post-turn recovery worst 2.2 deg across black/wood/gray
+    walls and 600-1000 mm randomized corridors (PASS bound 8 deg).
+  * FIXED (2026-07-11) — random interior walls: position randomization (600 or
+    1000 mm corridor per side) and colour randomization are handled by the
+    NOT-floor detection + the MCU ultrasonic hard guard; cruise lowered to 50%
+    for reaction time. Sim matrix: 7/7 PASS incl. all-600 mm + wood walls.
+  * WATCH (2026-07-09 field test) — stage 1 once ran 4 laps instead of 3
+    (corner-line undercount at 90% cruise). Since then: cruise 50% (roughly
+    doubles the fire window and the corner spacing vs the 2.5 s cooldown) and
+    the at_target-starvation path is gone (sweep latch). Every dropped fire is
+    now LOGGED (section 8) — if an undercount ever reappears, the console
+    shows exactly which gate ate which line; retune CORNER_COOLDOWN_S /
+    CORNER_STREAK / LINE_FIRE_ROW from that data.
+  * CHANGED (2026-07-13, field test) — VISION-AUTHORITY STEERING. The heading
+    hold used to haul the car back to the pre-dodge target the moment a camera
+    bias cleared ("always returns to its original angle"); on the randomized
+    interior walls that swung it back INTO the wall it had just dodged -> crash.
+    Now, while steerBias != 0 the MCU's targetHeading FOLLOWS the heading: the
+    camera steers, the gyro damps, and the car gyro-holds whatever NEW direction
+    the dodge ended on. turn() zeroes the bias, so 90-deg sweeps and the parking
+    segments still arc to exact targets (the 07-11 bias/KP equilibrium described
+    above no longer exists — the target moves instead of the error). Same day:
+    floor mask widened to V>=90/S<=90 (grey+white mat read as wall), cruise
+    30% test reverted to 50%.
+  * FIXED (2026-07-13, field test) — "doesn't work starting in EITHER
+    direction" (gg14). Three stacked causes:
+    (1) HARDWARE: the new LEFT side ultrasonic had been wired to A4/A5 — the
+        gyro's I2C pins. Its ECHO output clamps SCL, the MPU-6050 drops off the
+        bus, and heading hold + turns die in both directions. The left sensor
+        MOVED to TRIG=D5 / ECHO=D6 (divider!); A4/A5 are gyro-only. get_gyro_ok
+        + the UI badge now expose this failure instantly.
+    (2) SOFTWARE: decide_open pushed a camera "centering" bias every frame, but
+        the NOT-floor bands look OVER the 100 mm walls (background = "wall"),
+        so the bias was phantom — and under vision-authority steering a
+        standing bias re-aims the heading continuously: the car wandered from
+        the start line. Stage-1 wall authority moved to the SIDE RANGERS
+        (deadbanded centering + corner trigger); the camera keeps only the
+        orange/blue lines. Corners now fire from line OR rangers, so a missed
+        line no longer strands the run.
+    (3) TOTAL_CORNERS had been left at 16 (practice) — the "never stops after
+        3 laps" bug. Restored to 12.
+    Sim matrix 9/9 PASS: {ccw, cw} x {lines, camera-blind} x {fixed, random
+    600/1000 corridors, wood walls} — 12/12 corners, correct turn signs both
+    directions, post-turn recovery <= 2.1 deg, clean stops. Camera-blind in
+    600 mm corridors leans on the un-stick pulse (expected, self-recovering).
+  * Stage 2 parking is dead-reckoned (camera + gyro only). Documented failure
+    mode; the new side rangers are the natural upgrade path (localise the slot
+    opening / rear wall) — not wired into parking yet.
+================================================================================

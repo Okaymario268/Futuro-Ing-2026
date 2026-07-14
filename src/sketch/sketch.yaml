@@ -20,5 +20,8 @@ profiles:
       - platform: arduino:zephyr
     libraries:
       - Servo (1.3.0)
+      # The front ranger is now an HC-SR04 ULTRASONIC driven with bare
+      # digitalWrite/attachInterrupt in sketch.ino -- NO library needed
+      # (the VL53L0X laser + its Adafruit driver were removed).
 
 default_profile: default

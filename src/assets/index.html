@@ -142,6 +142,13 @@
     </div>
     <!-- ===== end Manual servo module ===== -->
 
+    <!-- Autonomous run: launch a full stage straight from the browser -->
+    <div class="scale" style="margin-top:16px;"><span>Autonomous run</span><span id="modeVal">manual</span></div>
+    <div class="presets" style="margin-top:6px;">
+      <button id="stage1Btn" style="background:#16331f;border-color:#1f5630;">Start Stage 1 (Open)</button>
+      <button id="stage2Btn" style="background:#16331f;border-color:#1f5630;">Start Stage 2 (Obstacle)</button>
+    </div>
+
     <!-- Gyro heading-hold (drive-straight) bench controls -->
     <div class="presets" style="margin-top:12px;">
       <button id="goStraight" style="background:#16331f;border-color:#1f5630;">Drive straight &#9654;</button>
@@ -151,6 +158,20 @@
       <button id="turnL">&#8634; Turn -90&deg;</button>
       <button id="turnR">Turn +90&deg; &#8635;</button>
     </div>
+
+    <!-- Manual jog: RC-style drive + steer (bench). Drive and steer work together. -->
+    <div class="scale" style="margin-top:16px;"><span>Manual drive (jog)</span></div>
+    <div class="presets" style="margin-top:6px;">
+      <button id="fwdBtn" style="background:#16331f;border-color:#1f5630;">Forward &#9650;</button>
+      <button id="revBtn" style="background:#2a2440;border-color:#3a3560;">Reverse &#9660;</button>
+      <button id="mstopBtn" style="background:#3a1d1d;border-color:#5a2a2a;">Stop &#9632;</button>
+    </div>
+    <div class="presets" style="margin-top:6px;">
+      <button id="leftBtn">&#9664; Left</button>
+      <button id="ctrBtn">Center</button>
+      <button id="rightBtn">Right &#9654;</button>
+    </div>
+
     <div style="margin-top:14px;">
       <div class="scale"><span>Drive speed (L298N)</span><span id="speedVal">100%</span></div>
       <input id="speed" class="slider" type="range" min="0" max="100" value="100" step="5" />
@@ -163,6 +184,14 @@
     <div class="presets" style="margin-top:8px;">
       <button id="camBtn" style="background:#1b2740;border-color:#2a3a5a;">Camera: OFF</button>
     </div>
+    <img id="camFeed" alt="live camera" style="display:none; width:100%; margin-top:8px;
+         border:1px solid #232c3d; border-radius:10px;" />
+    <div class="presets" style="margin-top:8px;">
+      <button id="startBtn" style="background:#1b2740;border-color:#2a3a5a;">Start button: OFF</button>
+    </div>
+    <div class="status" style="margin-top:8px;">
+      <span>Start gate:&nbsp;</span><strong id="startNote">off</strong>
+    </div>
     <div class="presets" style="margin-top:8px;">
       <button id="wallBtn">Corners (walls): ON</button>
       <button id="pillarBtn">Pillar: ON</button>
@@ -173,14 +202,68 @@
     <div class="status" style="margin-top:14px;">
       <span>Heading:&nbsp;</span><strong id="headingVal">&mdash;</strong><span>&deg;</span>
       <span style="margin-left:14px;">Target:&nbsp;</span><strong id="targetVal">&mdash;</strong><span>&deg;</span>
-      <span style="margin-left:auto;">Steer:&nbsp;</span><strong id="steerVal">&mdash;</strong><span>&deg;</span>
+      <span style="margin-left:14px;">Steer:&nbsp;</span><strong id="steerVal">&mdash;</strong><span>&deg;</span>
+      <span style="margin-left:auto;">Front:&nbsp;</span><strong id="frontVal">&mdash;</strong><span>mm</span>
     </div>
+
+    <!-- ===== Sensors: live gyro orientation + front ultrasonic distance ===== -->
+    <div class="scale" style="margin-top:16px;"><span>Sensors &mdash; gyro &amp; ultrasonic</span><span>live</span></div>
+    <div style="display:flex; gap:16px; align-items:center; margin-top:8px;">
+      <svg id="compass" width="118" height="118" viewBox="0 0 120 120" style="flex:none;">
+        <circle cx="60" cy="60" r="54" fill="none" stroke="#2a3344" stroke-width="3"/>
+        <g stroke="#2a3344" stroke-width="2">
+          <line x1="60" y1="6"   x2="60"  y2="16"/>
+          <line x1="60" y1="104" x2="60"  y2="114"/>
+          <line x1="6"  y1="60"  x2="16"  y2="60"/>
+          <line x1="104" y1="60" x2="114" y2="60"/>
+        </g>
+        <text x="60" y="30" fill="#8b97a7" font-size="9" text-anchor="middle">0&deg; (start)</text>
+        <!-- green wedge = TARGET heading -->
+        <g id="targetMark" transform="rotate(0 60 60)">
+          <polygon points="60,8 55,20 65,20" fill="#34d399"/>
+        </g>
+        <!-- blue arrow = CURRENT bot orientation -->
+        <g id="botArrow" transform="rotate(0 60 60)">
+          <polygon points="60,24 49,86 60,74 71,86" fill="var(--accent)"/>
+        </g>
+        <circle cx="60" cy="60" r="4" fill="#0c1018" stroke="var(--accent)" stroke-width="2"/>
+      </svg>
+      <div style="flex:1; min-width:0;">
+        <div class="scale"><span>Orientation</span><span><strong id="oriVal">&mdash;</strong>&deg; &middot; target <strong id="oriTarget">&mdash;</strong>&deg;</span></div>
+        <div class="scale" style="margin-top:12px;"><span>Ultrasonic front</span><span><strong id="laserVal">&mdash;</strong> mm</span></div>
+        <div style="height:10px; border-radius:6px; background:var(--track); margin-top:6px; overflow:hidden;">
+          <div id="laserBar" style="height:100%; width:0%; background:#34d399; transition:width .25s, background .25s;"></div>
+        </div>
+        <div class="scale"><span>0</span><span>500</span><span>1000+</span></div>
+        <!-- side rangers (corner assist): -1/no echo shows as "open" -->
+        <div class="scale" style="margin-top:10px;"><span>Sides L / R</span>
+          <span><strong id="leftVal">&mdash;</strong> / <strong id="rightVal">&mdash;</strong> mm</span></div>
+        <div class="scale" style="margin-top:10px;"><span>Gyro (I2C)</span><span><strong id="gyroOkVal">&mdash;</strong></span></div>
+      </div>
+    </div>
+    <!-- ===== end Sensors ===== -->
 
     <div class="status"><span id="dot" class="dot"></span><span id="statusText">Connecting…</span></div>
   </div>
 
   <script>
     // Plain REST (fetch) — this Web UI brick does not serve a Socket.IO client.
+
+    // ======================================================================
+    // UI CONFIGURATION — every front-end knob, first lines of the script.
+    // (Bot tuning lives in python/vision.py + python/fsm.py; MCU pins/speeds
+    //  in sketch/sketch.ino. Full reference: src/DOCUMENTATION.txt)
+    // ======================================================================
+    const SERVO_CENTER_DEG = 79;   // straight-ahead servo angle — must match CENTER in sketch.ino
+    const COMPASS_SIGN     = 1;    // set -1 if the compass arrow turns opposite to the bot
+    const HEADING_POLL_MS  = 200;  // heading/target/steer readout poll while driving
+    const SENSOR_POLL_MS   = 300;  // always-on compass + ultrasonic panel poll
+    const VISION_POLL_MS   = 300;  // vision-note poll while the camera is on
+    const START_POLL_MS    = 300;  // start-gate state poll while the gate is on
+    const ANGLE_SEND_MS    = 60;   // throttle between slider -> /api/angle requests
+    const US_WARN_MM       = 200;  // ultrasonic bar turns amber below this distance
+    const US_BLOCK_MM      = 75;   // ...and red below this (the MCU forward-block distance)
+
     const slider   = document.getElementById("slider");
     const valueEl  = document.getElementById("value");
     const needle   = document.getElementById("needle");
@@ -199,11 +282,13 @@
       needle.setAttribute("y2", (CY - LEN * Math.sin(theta)).toFixed(1));
     }
 
+    // Paint the connection dot + status text (green = last request succeeded).
     function setStatus(ok) {
       dot.classList.toggle("on", ok);
       statusEl.textContent = ok ? "Connected" : "Disconnected";
     }
 
+    // Send one servo angle to /api/angle and render the MCU-confirmed value.
     async function postAngle(angle) {
       try {
         const r = await fetch("/api/angle?angle=" + angle, { cache: "no-store" });
@@ -220,12 +305,12 @@
     function sendAngle(angle) {
       render(angle);                       // update UI immediately
       const now = Date.now();
-      if (now - lastSent >= 60) {
+      if (now - lastSent >= ANGLE_SEND_MS) {
         lastSent = now;
         postAngle(angle);
       } else {
         clearTimeout(pending);
-        pending = setTimeout(() => { lastSent = Date.now(); postAngle(angle); }, 60);
+        pending = setTimeout(() => { lastSent = Date.now(); postAngle(angle); }, ANGLE_SEND_MS);
       }
     }
 
@@ -257,7 +342,7 @@
         setStatus(true);
       } catch (e) {
         setStatus(false);
-        render(79);
+        render(SERVO_CENTER_DEG);
       }
     })();
 
@@ -265,8 +350,10 @@
     const headingVal = document.getElementById("headingVal");
     const targetVal  = document.getElementById("targetVal");
     const steerVal   = document.getElementById("steerVal");
+    const frontVal   = document.getElementById("frontVal");
     let headingTimer = null;
 
+    // Refresh the heading/target/steer/front text readouts from /api/heading.
     async function pollHeading() {
       try {
         const r = await fetch("/api/heading", { cache: "no-store" });
@@ -275,12 +362,68 @@
           if (typeof d.heading === "number") headingVal.textContent = d.heading;
           if (typeof d.target  === "number") targetVal.textContent  = d.target;
           if (typeof d.steer   === "number") { steerVal.textContent = d.steer; render(d.steer); }
+          frontVal.textContent = (typeof d.front === "number" && d.front >= 0) ? d.front : "—";
         }
         setStatus(true);
       } catch (e) { setStatus(false); }
     }
-    function startPolling() { clearInterval(headingTimer); headingTimer = setInterval(pollHeading, 200); }
+    // (Re)start the fast heading poll — called whenever a drive/run begins.
+    function startPolling() { clearInterval(headingTimer); headingTimer = setInterval(pollHeading, HEADING_POLL_MS); }
 
+    // --- Sensors panel: ALWAYS-ON gyro compass + ultrasonic distance bar ---
+    // Polls /api/heading from page load (independent of runs). The MCU
+    // integrates the gyro continuously, so rotating the bot by hand moves the
+    // arrow. COMPASS_SIGN (config block, top) flips it if it turns backwards.
+    const botArrow   = document.getElementById("botArrow");
+    const targetMark = document.getElementById("targetMark");
+    const oriVal     = document.getElementById("oriVal");
+    const oriTarget  = document.getElementById("oriTarget");
+    const laserVal   = document.getElementById("laserVal");
+    const laserBar   = document.getElementById("laserBar");
+    const leftVal    = document.getElementById("leftVal");
+    const rightVal   = document.getElementById("rightVal");
+    const gyroOkVal  = document.getElementById("gyroOkVal");
+
+    // Wrap any angle into 0..359 for the SVG rotate() transform.
+    function norm360(a) { return ((a % 360) + 360) % 360; }
+
+    // Rotate the compass arrow/target wedge and repaint the ultrasonic bar.
+    async function pollSensors() {
+      try {
+        const r = await fetch("/api/heading", { cache: "no-store" });
+        const d = await r.json();
+        if (typeof d.heading === "number") {
+          oriVal.textContent = d.heading;
+          botArrow.setAttribute("transform", "rotate(" + norm360(COMPASS_SIGN * d.heading) + " 60 60)");
+        }
+        if (typeof d.target === "number") {
+          oriTarget.textContent = d.target;
+          targetMark.setAttribute("transform", "rotate(" + norm360(COMPASS_SIGN * d.target) + " 60 60)");
+        }
+        if (typeof d.front === "number" && d.front >= 0) {
+          laserVal.textContent = d.front;
+          frontVal.textContent = d.front;
+          laserBar.style.width = Math.min(100, d.front / 10) + "%";   // 0..1000mm -> 0..100%
+          laserBar.style.background = d.front < US_BLOCK_MM ? "#d9534f" : d.front < US_WARN_MM ? "#e8a33d" : "#34d399";
+        } else {
+          laserVal.textContent = "—";
+          laserBar.style.width = "0%";
+        }
+        // side rangers: a real distance in mm, or "open" (-1 = no echo in range —
+        // exactly what an opened corner corridor looks like)
+        leftVal.textContent  = (typeof d.left  === "number" && d.left  >= 0) ? d.left  : "open";
+        rightVal.textContent = (typeof d.right === "number" && d.right >= 0) ? d.right : "open";
+        if (typeof d.gyro_ok === "number") {   // 0 = I2C dead: is something wired on A4/A5?
+          gyroOkVal.textContent = d.gyro_ok ? "OK" : "FAIL (A4/A5?)";
+          gyroOkVal.style.color = d.gyro_ok ? "#34d399" : "#d9534f";
+        }
+        setStatus(true);
+      } catch (e) { setStatus(false); }
+    }
+    setInterval(pollSensors, SENSOR_POLL_MS);
+    pollSensors();
+
+    // Fire-and-forget GET to a control endpoint; only the status dot reports errors.
     async function hit(url) {
       try { await fetch(url, { cache: "no-store" }); setStatus(true); } catch (e) { setStatus(false); }
     }
@@ -288,6 +431,37 @@
     document.getElementById("goStraight").addEventListener("click", async () => { await hit("/api/straight"); document.getElementById("speed").value = 100; document.getElementById("speedVal").textContent = "100%"; reflectRunState(true); startPolling(); });
     document.getElementById("turnL").addEventListener("click",     () => hit("/api/turn?deg=-90"));
     document.getElementById("turnR").addEventListener("click",     () => hit("/api/turn?deg=90"));
+
+    // Manual jog: drive direction + servo position (bench RC control).
+    document.getElementById("fwdBtn").addEventListener("click",   () => hit("/api/jog?dir=fwd"));
+    document.getElementById("revBtn").addEventListener("click",   () => hit("/api/jog?dir=rev"));
+    document.getElementById("mstopBtn").addEventListener("click", () => hit("/api/jog?dir=stop"));
+    document.getElementById("leftBtn").addEventListener("click",  () => hit("/api/steerpos?dir=left"));
+    document.getElementById("ctrBtn").addEventListener("click",   () => hit("/api/steerpos?dir=center"));
+    document.getElementById("rightBtn").addEventListener("click", () => hit("/api/steerpos?dir=right"));
+
+    // Autonomous stage launcher (Stage 1 Open / Stage 2 Obstacle).
+    const stage1Btn = document.getElementById("stage1Btn");
+    const stage2Btn = document.getElementById("stage2Btn");
+    const modeVal = document.getElementById("modeVal");
+    async function startStage(name) {
+      let d = {};
+      try { const r = await fetch("/api/stage?name=" + name, { cache: "no-store" }); d = await r.json(); }
+      catch (e) { setStatus(false); return; }
+      if (d.available === false) { modeVal.textContent = "camera N/A"; return; }
+      // With the physical start gate ON the stage only ARMS: the camera runs but
+      // the car waits for the button (gyro recal + 3-2-1 happen on the press).
+      modeVal.textContent = d.armed ? (d.stage + " — press START button") : (d.stage || name);
+      // the stage auto-starts the camera -> show the live feed + reflect UI state
+      camOn = true;
+      camBtn.textContent = "Camera: ON"; camBtn.style.background = "#16331f";
+      camFeed.style.display = "block";
+      setTimeout(() => { camFeed.src = "/api/stream?t=" + Date.now(); }, 500);
+      clearInterval(visionTimer); visionTimer = setInterval(pollVision, VISION_POLL_MS);
+      reflectRunState(!d.armed); startPolling();   // armed: motor/steer stay off until GO
+    }
+    stage1Btn.addEventListener("click", () => startStage("open"));
+    stage2Btn.addEventListener("click", () => startStage("obstacle"));
 
     const speed = document.getElementById("speed");
     const speedValEl = document.getElementById("speedVal");
@@ -297,11 +471,13 @@
       hit("/api/speed?pct=" + pct);
     });
 
-    // Camera toggle + live vision note.
+    // Camera toggle + live vision note + live MJPEG feed.
     const camBtn = document.getElementById("camBtn");
     const visionNote = document.getElementById("visionNote");
+    const camFeed = document.getElementById("camFeed");
     let camOn = false, visionTimer = null;
 
+    // Mirror the latest vision note + commanded speed into the UI while the camera runs.
     async function pollVision() {
       try {
         const r = await fetch("/api/vision", { cache: "no-store" });
@@ -324,8 +500,40 @@
       camOn = !!d.camera;
       camBtn.textContent = camOn ? "Camera: ON" : "Camera: OFF";
       camBtn.style.background = camOn ? "#16331f" : "#1b2740";
-      if (camOn) { visionTimer = setInterval(pollVision, 300); }
-      else { clearInterval(visionTimer); visionTimer = null; visionNote.textContent = "—"; }
+      if (camOn) {
+        // small delay so the pipeline has a frame before the stream connects
+        setTimeout(() => { camFeed.src = "/api/stream?t=" + Date.now(); }, 400);
+        camFeed.style.display = "block";
+        visionTimer = setInterval(pollVision, VISION_POLL_MS);
+      } else {
+        camFeed.style.display = "none";
+        camFeed.removeAttribute("src");
+        clearInterval(visionTimer); visionTimer = null; visionNote.textContent = "—";
+      }
+    });
+
+    // --- Start-button gate: physical button + 3-2-1 LED countdown --------
+    const startBtn = document.getElementById("startBtn");
+    const startNote = document.getElementById("startNote");
+    let startOn = false, startTimer = null;
+    // Show whether the physical start gate is off / armed / already fired.
+    async function pollStart() {
+      try {
+        const r = await fetch("/api/startstate", { cache: "no-store" });
+        const d = await r.json();
+        if (d && d.enabled) startNote.textContent = d.ready ? "started ▶"
+          : (d.armed ? d.armed + " armed — press button (recal + 3-2-1)"
+                     : "armed — press button (straight run)");
+        else startNote.textContent = "off";
+      } catch (e) { /* keep last */ }
+    }
+    startBtn.addEventListener("click", async () => {
+      startOn = !startOn;
+      try { await fetch("/api/startbtn?on=" + (startOn ? 1 : 0), { cache: "no-store" }); } catch (e) { setStatus(false); }
+      startBtn.textContent = startOn ? "Start button: ON" : "Start button: OFF";
+      startBtn.style.background = startOn ? "#16331f" : "#1b2740";
+      if (startOn) { pollStart(); startTimer = setInterval(pollStart, START_POLL_MS); }
+      else { clearInterval(startTimer); startTimer = null; startNote.textContent = "off"; }
     });
 
     // --- Independent subsystem toggles: motor / steering / pillar --------
@@ -335,6 +543,7 @@
     const wallBtn   = document.getElementById("wallBtn");
     let motorOn = false, steerOn = false, pillarOn = true, wallOn = true;
 
+    // Paint an ON/OFF toggle button's label + green/red colour scheme.
     function paintToggle(btn, on, label) {
       btn.textContent = label + ": " + (on ? "ON" : "OFF");
       btn.style.background  = on ? "#16331f" : "#3a1d1d";
@@ -382,6 +591,7 @@
     document.getElementById("stopBtn").addEventListener("click", async () => {
       await hit("/api/stop");
       reflectRunState(false);
+      modeVal.textContent = "manual";   // Stop also ends an autonomous stage
       clearInterval(headingTimer); headingTimer = null;
       pollHeading();   // one final refresh; servo now at CENTER (79)
     });
