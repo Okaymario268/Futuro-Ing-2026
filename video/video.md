@@ -1,8 +1,5 @@
 # Driving demonstration video
 
-Add the link to a video showing the vehicle completing the challenge:
+**Open Challenge (Stage 1):** https://www.youtube.com/shorts/cSLZId9H9bs
 
-**Video link:** _<paste YouTube / Google Drive link here>_
-
-A raw recording (`iPhone.mp4`) is included in this folder, but for judging
-you should upload a hosted video and put its link above.
+A raw recording (`iPhone.mp4`) is also included in this folder.

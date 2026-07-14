@@ -352,11 +352,17 @@ specifications** are in the collapsible block below.
 
 ## 🎥 Video
 
-The driving-demonstration video link lives in [`video/video.md`](video/video.md).
+<div align="center">
 
-> [!NOTE]
-> A hosted video isn't published yet. Once it is, this section shows a clickable YouTube
-> thumbnail linking to the run.
+<a href="https://www.youtube.com/shorts/cSLZId9H9bs">
+  <img src="https://img.youtube.com/vi/cSLZId9H9bs/hqdefault.jpg" alt="Open Challenge run — FuturoIng" width="360" />
+</a>
+
+**▶️ [Watch the Open Challenge run (Stage 1)](https://www.youtube.com/shorts/cSLZId9H9bs)**
+
+</div>
+
+The link is also recorded in [`video/video.md`](video/video.md).
 
 ---
 
