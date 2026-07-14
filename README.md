@@ -322,8 +322,7 @@ specifications** are in the collapsible block below.
 | GND (brown/black) | supply GND **and** a board GND (shared ground) |
 
 <div align="center">
-<img src="images/placeholders/wiring.svg" alt="Wiring diagram coming soon" width="640" />
-<!-- TODO: replace with schemes/wiring.png once the schematic is drawn -->
+<img src="schemes/wiring.png" alt="Wiring diagram — FuturoIng self-driving vehicle" width="720" />
 </div>
 
 <details>
@@ -344,16 +343,12 @@ specifications** are in the collapsible block below.
 
 ## 🤖 Vehicle Gallery
 
-> [!NOTE]
-> Photos are **placeholders** — drop the real shots into [`v-photos/`](v-photos/) and the
-> grid updates. A driving-demo GIF will sit at the top once recorded.
-
 <div align="center">
 
-| <img src="images/placeholders/robot-front.svg" width="240" /> | <img src="images/placeholders/robot-back.svg" width="240" /> | <img src="images/placeholders/robot-left.svg" width="240" /> |
+| <img src="v-photos/front.jpeg" width="240" /> | <img src="v-photos/back.jpeg" width="240" /> | <img src="v-photos/left.jpeg" width="240" /> |
 |:--:|:--:|:--:|
 | **Front** | **Back** | **Left** |
-| <img src="images/placeholders/robot-right.svg" width="240" /> | <img src="images/placeholders/robot-top.svg" width="240" /> | <img src="images/placeholders/robot-bottom.svg" width="240" /> |
+| <img src="v-photos/right.jpeg" width="240" /> | <img src="v-photos/top.jpeg" width="240" /> | <img src="v-photos/bottom.jpeg" width="240" /> |
 | **Right** | **Top** | **Bottom** |
 
 </div>
@@ -400,14 +395,8 @@ The driving-demonstration video link lives in [`video/video.md`](video/video.md)
 | <img src="images/placeholders/team-official.svg" width="240" /> | <img src="images/placeholders/team-fun.svg" width="240" /> |
 |:--:|:--:|
 | **Official team photo** | **Team (fun)** |
-| <img src="images/placeholders/member-1.svg" width="160" /> | <img src="images/placeholders/member-2.svg" width="160" /> |
-| **Member** | **Member** |
 
 </div>
-
-> [!NOTE]
-> Team photos are **placeholders** — add the real photos to [`t-photos/`](t-photos/) and
-> the names/roles here, and I'll wire them in.
 
 <div align="center">
 <br>
