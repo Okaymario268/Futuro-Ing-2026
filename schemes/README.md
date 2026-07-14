@@ -8,3 +8,7 @@ the vehicle and how they connect:
 - Steering servo on D9
 - DC drive motor via the L298N driver
 - Power distribution (12 V battery)
+- LM2596
+- Logitech Brio 300
+- Ultrasonic
+- L298n
