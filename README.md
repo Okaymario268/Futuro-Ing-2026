@@ -44,12 +44,21 @@
 ## 🏎️ Overview
 
 An autonomous vehicle built on the **Arduino UNO Q** (App Lab) for the **WRO Future
-Engineers** challenge. It steers with a servo, drives with a DC motor through an L298N
-driver, holds a straight heading with an **MPU‑6050 (GY‑521)** gyro, and detects
-coloured pillars with a Logitech camera.
+Engineers** challenge. It steers with a servo, drives with a DC motor through a
+**Modulino Motors** driver, centers itself in the corridor with **3× Modulino Distance**
+(ToF) sensors on a **Modulino Hub**, turns exact 90° corners with an **MPU‑6050** gyro
+soldered directly to the Hub's I²C pass-through pads, and carries a **LDROBOT LD19**
+360° lidar and a Logitech camera for future obstacle/line work.
+
+> [!NOTE]
+> This project **migrated** from a first, more "learning-hardware" build (L298N driver +
+> HC‑SR04 ultrasonic + a bare MPU‑6050 on A4/A5) to this Modulino-based ecosystem to use
+> more modern, plug‑and‑play, I²C-addressable modules. The migration story — including the
+> Wire/Wire1 bus conflict we hit and fixed — is in
+> [`other/fabrication-challenges.md`](other/fabrication-challenges.md).
 
 ```
-Browser slider ──socket.io──▶ Python (Web UI brick) ──RouterBridge RPC──▶ sketch ──▶ servo on D9
+Browser panel ──WebSocket──▶ Python (Web UI brick) ──RouterBridge RPC──▶ sketch ──▶ servo (pin 5) + Modulino Motors/Distance/Buttons/Hub + MPU-6050
 ```
 
 > [!NOTE]
@@ -100,33 +109,42 @@ This repository follows the official **WRO Future Engineers** engineering-materi
 
 | Module | Where | Role |
 |--------|-------|------|
-| **Sensing** | `src/python/vision.py` + `src/sketch` | Logitech camera (pillars/walls) + MPU‑6050 gyro (heading) |
-| **Logic** | `src/sketch/sketch.ino` | Gyro heading‑hold **PD** loop — drive straight & sweep corners |
-| **Actuation** | `src/sketch/sketch.ino` | Steering servo on **D9** + DC drive motor via the **L298N** |
-| **Interface** | `src/python/main.py` + `src/assets` | Web UI (FastAPI) + RouterBridge RPC bridge to the MCU |
+| **Sensing** | `src/sketch/sketch.ino` | 3× Modulino Distance (wall centering + corner detect) + MPU‑6050 (heading) + Modulino Buttons |
+| **Logic** | `src/sketch/sketch.ino` | Runs **on the MCU, in real time**: wall-centering P control + fixed-90° gyro turns + 12-corner lap counter |
+| **Actuation** | `src/sketch/sketch.ino` | Steering servo on **pin 5** + DC drive motor via **Modulino Motors** |
+| **Interface / extra senses** | `src/python/main.py` + `src/python/lidar_ld19.py` + `src/assets` | Web UI (Socket.IO) + camera stream + LD19 lidar 360° scan + RouterBridge RPC bridge to the MCU |
 
-### 🏁 Autonomous run — Stage 1 (Open) vs Stage 2 (Obstacle)
+> [!IMPORTANT]
+> **Architecture change from the diagram below:** in this Modulino-based build the
+> real-time driving FSM (wall centering, corner detection, 90° turns) runs **entirely in
+> `sketch.ino` on the MCU**, not in Python — the 3 distance sensors need to be polled every
+> loop cycle, and round-tripping that over the RouterBridge RPC to Python would be too slow.
+> Python (`main.py`) now owns only the web panel, camera, lidar, and two *extra* corner
+> triggers it can push to the sketch (`Bridge.call("camera_corner", ...)`): a colour-line
+> detector (`_detect_corner_line`, orange/blue) and a lidar front-sector check
+> (`lidar.sector_min_mm(0, 15)`), both meant as backups for when the front distance sensor
+> alone isn't trusted yet (see the engineering journal for why).
 
-The competition code is **split by challenge**, over a shared core. Select the matching
-entry file as the App Lab program for each round:
+### 🏁 Autonomous run — current status
 
-| File | Stage | What it does |
-|------|:-----:|--------------|
-| [`src/python/stage1_open.py`](src/python/stage1_open.py) | **1 · Open** | 3 laps · gyro drive-straight · orange/blue **corner lines** turn the car · direction **latched from the first line** · **auto-stop after corner #12**. No pillars, no parking. |
-| [`src/python/stage2_obstacle.py`](src/python/stage2_obstacle.py) | **2 · Obstacle** | Everything in Stage 1 **plus** red→right / green→left **pillar passing** and a **parallel-park** finish. |
+The files below (`stage1_open.py`, `stage2_obstacle.py`, `fsm.py`, `vision.py`,
+`bridge_io.py`) are **kept from the previous, camera-vision-based architecture** and are
+not deleted, but the currently-flashed program is the simpler sketch-only FSM described
+above (`src/sketch/sketch.ino` + `src/python/main.py`). It currently implements the
+**Open Challenge** (wall-centering + 12-corner lap counter); Obstacle-challenge pillar
+logic has not been ported to this architecture yet.
 
-**Shared (used by both):**
-- [`src/sketch/sketch.ino`](src/sketch/sketch.ino) — gyro heading-hold PD steering + motor; now also reverse drive + `at_target`/`get_turns` for parking & lap counting.
+**Shared / previous architecture (kept for reference, not currently flashed):**
+- [`src/python/stage1_open.py`](src/python/stage1_open.py) / [`stage2_obstacle.py`](src/python/stage2_obstacle.py) — the earlier camera-vision-driven stage entry points.
 - [`src/python/vision.py`](src/python/vision.py) — perception: `detect_lines` (orange/blue), `decide_open`, `decide_obstacle`, wall centering.
-- [`src/python/fsm.py`](src/python/fsm.py) — the 3-lap state machine (`RaceController`).
+- [`src/python/fsm.py`](src/python/fsm.py) — the earlier 3-lap state machine (`RaceController`).
 - [`src/python/bridge_io.py`](src/python/bridge_io.py) — thin RPC wrappers to the MCU.
 
 > [!IMPORTANT]
-> Every threshold (HSV, ROIs, PD gains, park angles) is a **starting point to tune on the
-> real mat**. The orange→right / blue→left mapping is a **team convention, not a rule** —
-> verify it on your field and flip if turns go the wrong way. Camera-only parking is the
-> documented failure mode; a single side distance sensor is strongly recommended. Full
-> rationale + rule citations are in [`other/fabrication-challenges.md`](other/fabrication-challenges.md).
+> Every threshold (corner distance, P gain, turn timing) is a **starting point to tune on
+> the real mat** — the front distance sensor's reading depends a lot on its exact mounting
+> height/angle above the mat (see the journal). Full rationale is in
+> [`other/fabrication-challenges.md`](other/fabrication-challenges.md).
 
 ### ⚙️ How it works
 
@@ -187,28 +205,45 @@ default_profile: default
 > **Connected**, and the servo physically tracks the slider.
 
 <details>
-<summary><b>🛠️ STAGE 2 — full FuturoIng robot port (reference)</b></summary>
+<summary><b>🛠️ Current build — Modulino + gyro + lidar (reference)</b></summary>
 
 <br>
 
-The full robot (servo steering + L298N DC motor) reuses the same pattern: keep the
-`Arduino_RouterBridge` handlers and add the motor pins.
+The current robot (servo steering + Modulino Motors DC motor) uses the same
+`Arduino_RouterBridge` pattern, plus `Arduino_Modulino` for the Hub/Distance/Buttons/Motors
+and a raw `Wire1` MPU-6050 for heading:
 
 ```cpp
-#include <Arduino_RouterBridge.h>
+#include <Arduino_Modulino.h>
 #include <Servo.h>
+#include <Arduino_RouterBridge.h>
+#include <Wire.h>
 
-int MotorVelocityPin = 3;   // ENA / PWM speed
-int MotorPin1 = 6, MotorPin2 = 5;   // direction
-int CenterServoRotation = 138, ServoPin = 9;
-Servo servo;
+const uint8_t PIN_SERVO = 5;   // signal pin (pin 3 died during rework, moved to 5)
+const int SERVO_CENTER = 77;
+
+ModulinoHub hub;
+ModulinoButtons buttons;
+ModulinoDistance distIzq(hub.port(2));
+ModulinoDistance distCentro(hub.port(7));
+ModulinoDistance distDer(hub.port(3));
+ModulinoMotors motors;
+Servo servoDireccion;
+
+// MPU-6050 soldered to the Hub's own SDA/SCL/3V3/GND pass-through pads --
+// shares Wire1 with Modulino, avoiding the Wire/Wire1 bus conflict (see the
+// engineering journal for the full diagnosis).
+const uint8_t MPU_ADDR = 0x68;
 
 void setup() {
-  pinMode(MotorPin1, OUTPUT); pinMode(MotorPin2, OUTPUT); pinMode(MotorVelocityPin, OUTPUT);
-  Bridge.begin(); Monitor.begin(115200);
-  servo.attach(ServoPin); servo.write(CenterServoRotation);
+  Bridge.begin();
+  Modulino.begin();
+  buttons.begin(); distIzq.begin(); distCentro.begin(); distDer.begin(); motors.begin();
+  servoDireccion.attach(PIN_SERVO);
+  servoDireccion.write(SERVO_CENTER);
+  // mpuBegin() / mpuCalibrate() -- WHO_AM_I check + gyro bias, robot must be still
 }
-void loop() { /* obstacle-avoidance / steering logic */ }
+void loop() { /* wall-centering P control + gyro 90-degree corner turns, see src/sketch/sketch.ino */ }
 ```
 
 </details>
@@ -223,13 +258,22 @@ specifications** are in the collapsible block below.
 | Component | Image | Qty | Key spec | Role |
 |-----------|:-----:|:---:|----------|------|
 | **Arduino UNO Q** | <img src="images/components/arduino-uno-q.webp" width="92" /> | 1 | QRB2210 quad-A53 + STM32U585 | Main controller (Linux SBC + MCU), App Lab |
-| **L298N** dual H-bridge | <img src="images/components/l298n.png" width="92" /> | 1 | 2 A/channel, up to 46 V | Motor driver for the DC drive motor |
-| **DC drive motor** | <img src="images/components/dc-motor.png" width="92" /> | 1 | brushed, ~3–6 V | Propels the vehicle (via the L298N) |
-| **Steering servo** | <img src="images/components/servo.png" width="92" /> | 1 | PWM, 4.8–6 V, ~180° | Steers the front wheels (signal on D9) |
-| **GY-521 (MPU-6050)** | <img src="images/components/gy-521.jpeg" width="92" /> | 1 | 6-axis, ±2000 °/s, I²C | Gyro heading hold (yaw) |
-| **Logitech camera** | <img src="images/components/camera.jpg" width="92" /> | 1 | USB UVC, 720p @ 30 fps | Computer vision (pillars & obstacles) |
+| **Modulino Hub** (ABX00100) | <img src="images/components/modulino-hub.jpg" width="92" /> | 1 | I²C mux, 8 Qwiic channels | Fans out one I²C bus so same-address modules (the 3 Distance sensors) don't collide |
+| **Modulino Motors** | <img src="images/components/modulino-motors.jpg" width="92" /> | 1 | Qwiic DC motor driver | Drives the DC motor; replaces the L298N |
+| **Modulino Buttons** | <img src="images/components/modulino-buttons.jpg" width="92" /> | 1 | 3 buttons + LEDs, Qwiic | Start/stop control, chained after the Hub |
+| **Modulino Distance ×3** | <img src="images/components/modulino-distance.jpg" width="92" /> | 3 | VL53L4CD ToF, I²C (fixed addr 0x29) | Left/center/right corridor distance — each on its **own** Hub channel |
+| **DC drive motor** | <img src="images/components/dc-motor.png" width="92" /> | 1 | brushed gearmotor (from a disassembled LEGO EV3 motor, driven raw — no encoder) | Propels the vehicle (via Modulino Motors) |
+| **Steering servo** | <img src="images/components/servo.png" width="92" /> | 1 | PWM, 4.8–6 V, ~180° | Steers the front wheels (signal on **pin 5**) |
+| **MPU-6050 (GY-521)** | <img src="images/components/gy-521.jpeg" width="92" /> | 1 | 6-axis, ±2000 °/s, I²C | Gyro heading hold — soldered to the Hub's own `Wire1` pass-through pads (see gotchas below) |
+| **LDROBOT LD19** lidar | *(photo pending)* | 1 | 2D ToF, 360°, ~10 Hz, via USB-serial (CP210x) | 360° scan; front-sector backup for corner detection |
+| **Logitech C930e camera** | <img src="images/components/camera.jpg" width="92" /> | 1 | USB UVC | Live panel view; colour-line corner-detection backup |
 | **Battery** | <img src="images/components/battery.png" width="92" /> | 1 | 11.1 V 3S 18650, ~3800 mAh | Main power supply |
 | **Jumper cables** | <img src="images/components/jumpers.png" width="92" /> | as needed | Dupont, 2.54 mm pitch | Wiring between modules |
+
+> [!NOTE]
+> **Retired from the first build:** the L298N dual H-bridge and the HC-SR04 ultrasonic
+> sensor are no longer used — replaced respectively by Modulino Motors and the 3 Modulino
+> Distance sensors. Kept in `images/components/` for historical reference.
 
 <details>
 <summary><b>📋 Full component specifications (researched & sourced)</b></summary>
@@ -312,25 +356,33 @@ specifications** are in the collapsible block below.
 
 | Servo wire | Connect to |
 |------------|------------|
-| Signal (orange/white) | **D9** |
-| V+ (red) | external **5–6 V** supply |
-| GND (brown/black) | supply GND **and** a board GND (shared ground) |
+| Signal (orange/white) | **pin 5** |
+| V+ (red) | UNO Q **5V** pin |
+| GND (brown/black) | UNO Q **GND** (shared ground) |
 
 <div align="center">
-<img src="schemes/wiring.png" alt="Wiring diagram — FuturoIng self-driving vehicle" width="720" />
+<img src="schemes/wiring-modulino.png" alt="Wiring diagram — FuturoIng Modulino/gyro/lidar build" width="720" />
 </div>
 
+> [!NOTE]
+> `schemes/wiring.png` (kept, not deleted) shows the **previous** L298N + HC-SR04 build.
+> `schemes/wiring-modulino.png` above is the current one.
+
 <details>
-<summary><b>🔧 Full pin map</b></summary>
+<summary><b>🔧 Full pin map (current build)</b></summary>
 
 <br>
 
-| Signal | Pin | Notes |
+| Signal | Pin / Port | Notes |
 |--------|-----|-------|
-| Steering servo | **D9** | PWM-capable on the UNO Q |
-| Motor ENA (speed) | **D3** | L298N PWM |
-| Motor IN1 / IN2 | **D6 / D5** | L298N direction |
-| MPU-6050 SDA / SCL | **A4 / A5** | I²C (core ≥ 0.55.2) |
+| Steering servo | **pin 5** | Pin 3 was used originally but died during rework; moved to pin 5 |
+| Modulino chain | Qwiic (I²C) | UNO Q → **Modulino Hub** → **Modulino Buttons** → **Modulino Motors** (daisy-chained on the Hub's main, unmuxed port) |
+| Modulino Distance — Izquierda | Hub channel **2** | VL53L4CD, own channel (fixed I²C addr 0x29 collides if chained) |
+| Modulino Distance — Centro | Hub channel **7** | Used for corner/front-wall detection |
+| Modulino Distance — Derecha | Hub channel **3** | |
+| MPU-6050 SDA / SCL / 3V3 / GND | **soldered to the Hub's own pass-through pads** | NOT A4/A5 — the UNO Q's `Modulino.begin()` uses `Wire1` (i2c4), not `Wire` (i2c2/A4-A5); mixing the two on one sketch hangs the whole I²C bus. See the journal for the full diagnosis. |
+| LD19 lidar | USB (via CP210x USB-serial adapter) | `/dev/ttyUSB0`, 230400 baud, 47-byte packets |
+| Logitech camera | USB | via the same USB hub as the lidar adapter |
 
 </details>
 
@@ -378,11 +430,27 @@ The link is also recorded in [`video/video.md`](video/video.md).
 ## ⚙️ UNO Q Gotchas
 
 > [!WARNING]
-> - **PWM pins:** on Zephyr `servo.attach(pin)` needs a hardware-PWM pin. If the servo
->   doesn't move on **D9**, try another PWM header pin (e.g. D3 or D6).
-> - Keep **Servo ≥ 1.3.0** in `sketch.yaml`.
-> - The UNO Q I²C is core-version-dependent — use **A4/A5** with core **≥ 0.55.2**; the
->   Qwiic connector has been reported flaky.
+> - **PWM pins:** on Zephyr `servo.attach(pin)` needs a hardware-PWM pin. A GPIO pin can
+>   also just die from rework/handling (happened to us on pin 3) — try another PWM pin if
+>   the servo goes silent with no code change.
+> - Keep **Servo ≥ 1.3.0** in `sketch.yaml`, plus every transitive Modulino dependency
+>   declared explicitly (`Arduino_Modulino`, `STM32duino VL53L4CD`/`VL53L4ED`,
+>   `Arduino_LSM6DSOX`, `Arduino_LPS22HB`, `Arduino_HS300x`, `Arduino_LTR381RGB`) — App Lab
+>   does **not** auto-resolve them from what's merely installed, only from `sketch.yaml`.
+> - **`Modulino.begin()` on the UNO Q defaults to `Wire1` (i2c4), not `Wire` (i2c2 / the
+>   classic A4-A5 bus)** — this cost us the most debugging time in this migration. Using a
+>   raw `Wire` (or even a second `Wire1` reference) transaction for a non-Modulino I²C
+>   device in the *same sketch* as Modulino reliably breaks **all** Modulino traffic
+>   (Buttons/Distance/Motors), success or failure of that transaction notwithstanding. Fix:
+>   share `Wire1` for everything — we soldered the MPU-6050 straight to the Hub's own
+>   SDA/SCL/3V3/GND pass-through pads instead of A4/A5.
+> - Same-address I²C modules (all 3 Distance sensors share the fixed VL53L4CD address
+>   `0x29`) **must** each sit on their own numbered Hub channel — chaining them like
+>   Buttons/Motors puts them all on the same bus segment and none of them respond reliably.
+> - A `Bridge.provide`-registered function that writes to a Modulino device on **every**
+>   `loop()` iteration (instead of only on state changes / throttled) can flood the I²C bus
+>   enough to hang it — and with it the whole sketch, since `Wire1` has no transaction
+>   timeout in this driver stack. Throttle hardware writes (~10/s is plenty).
 > - Use App Lab's **`Monitor`**, not the classic IDE Serial Monitor.
 
 ---

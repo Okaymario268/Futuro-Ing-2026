@@ -135,3 +135,138 @@ Everything above **plus**:
 **Reference implementations borrowed from:** Nerdvana Taurus (gyro hybrid + reverse-arc
 park), kylln20 (pillar target-x passing), F2er-WRO (line HSV ranges), Helem-arch
 (blob-position direction), oracleapolloo (clean per-stage split).
+
+---
+
+## Part 2 — Migrating to the Modulino ecosystem + lidar + gyro (2026-09)
+
+### Why migrate
+The first build (above) used the L298N driver, an HC-SR04 ultrasonic sensor and a bare
+MPU-6050 on A4/A5 — functional, but chosen mostly for being the easiest hardware to learn
+on. For this revision we deliberately swapped in more modern, plug-and-play, I2C-addressable
+modules: the Modulino family (Hub, Distance x3, Buttons, Motors) plus an LDROBOT LD19
+360-degree lidar, keeping the same MPU-6050 gyro and the same servo/camera.
+
+### Hardware bring-up: two costly assumption bugs
+- **Wrong Hub channel numbers.** We assumed `hub.port(0)/(1)/(2)` for left/center/right
+  without confirming — the real wiring was different channels entirely. A single
+  wrong-but-plausible assumption produced hours of "everything is silent" debugging that
+  had nothing to do with the actual bug. Lesson: verify hub-port numbers live (swap the
+  number, reflash, read the panel) rather than assume — it is faster than it sounds, and it
+  is worth re-verifying again any time the Hub itself is physically remounted (it happened
+  to us twice: once from a wrong initial guess, once again after a chassis rebuild
+  physically rotated the Hub).
+- **Same-address modules daisy-chained.** All 3 Modulino Distance sensors share the fixed
+  I2C address `0x29` (VL53L4CD). Chaining them like Buttons/Motors puts them on the same bus
+  segment — none of them respond reliably, and the resulting bus noise even made a
+  `ModulinoButtons.begin()` fail silently, leaving stale "pressed" data that once fired the
+  drive motor with no button touched. Fix: confirm any bad-reading state via `(bool)module`
+  checked every loop, not just at boot — and give each same-address module its own Hub
+  channel.
+
+### The Wire vs Wire1 conflict (the deepest bug of this migration)
+Adding the MPU-6050 (a bare I2C device, not a Modulino) alongside Modulino modules reliably
+broke all Modulino traffic — Buttons, Distance and Motors would all stop responding,
+regardless of whether the gyro's own I2C transaction succeeded or failed.
+
+**Diagnosis, in order:**
+1. Confirmed the gyro-free baseline was fully healthy (all Modulino modules green).
+2. Confirmed unplugging the gyro physically did not fix it — ruled out a simple short.
+3. Reproduced the full breakage with nothing but a single WHO_AM_I probe — ruled out
+   anything gyro-logic-specific; it was purely about touching the bus at all.
+4. Read `Modulino.h`'s source: on the UNO Q, `Modulino.begin()` defaults to `Wire1`, not
+   `Wire`. Confirmed against the board's Zephyr devicetree overlay: `Wire` = i2c2 (the
+   classic A4/A5-equivalent bus, including the header pins silkscreened "SDA/SCL" near AREF
+   — a shield-compatibility convention, not the Qwiic bus), `Wire1` = i2c4 (the real
+   Qwiic/Modulino bus, MCU pins PD12/PD13).
+5. Built a fully isolated diagnostic app (`gyro-solo`: Bridge + Wire1 + MPU-6050, zero
+   Modulino code) to separate "is the chip/wiring bad" from "is it a bus conflict." It
+   proved the chip and wiring were fine (WHO_AM_I = 0x68, clean and repeatable) — the
+   conflict was real and independent of the sensor itself.
+
+**Root cause:** using a raw `Wire` (or even a second `Wire1` reference) transaction for a
+non-Modulino I2C device, in the same sketch that also uses Modulino internally on `Wire1`,
+corrupts Modulino's traffic — a genuine multi-TwoWire-instance conflict in this Zephyr I2C
+driver stack (possibly related to `__increaseI2CPriority()`, a function `Modulino.begin()`
+calls internally that a raw-Wire gyro never gets the benefit of).
+
+**Fix:** stop using A4/A5 (or the AREF-area "SDA/SCL" header, which is the same `Wire`
+bus) for the gyro entirely. Instead, solder the MPU-6050's 4 wires (VCC to 3V3, GND to GND,
+SDA to SDA, SCL to SCL) directly to the Modulino Hub's own pass-through through-hole pads —
+the same `Wire1` net every other Modulino module already uses. No soldered-in pin header is
+required; the pads accept a wire directly. After the fix, `gyro-solo` repointed at `Wire1`
+read WHO_AM_I = 0x68 and every Modulino module stayed responsive at the same time.
+
+### Motor swap: a torque problem that looked like a power problem
+After the migration, the drive motor barely moved the (now heavier) chassis. The instinct
+was to blame the battery — but measuring it in use (12.0 V resting to 11.93 V driving)
+showed an insignificant sag, ruling that out. Measuring directly at the Modulino Motors
+screw terminals, though, found the motor itself was only receiving 1.5 V with 12 V
+available: the original DC motor (chosen for the lighter, first-generation chassis) simply
+did not have enough torque for the new, heavier build, regardless of PWM duty cycle.
+
+**Fix:** salvaged the geared motor out of a LEGO EV3 Mindstorms motor — desoldered its
+internal encoder/controller board and wired the two raw motor leads directly into Modulino
+Motors, the same way any brushed DC motor connects. Confirmed much higher usable torque.
+Side effects that had to be re-tuned after the swap: motor polarity was reversed again
+(`setInvertA` flag flipped), decay mode changed from `SLOW` to `FAST` for a crisper stop,
+and cruise/turn speed had to be re-benchmarked from scratch (a fresh motor plus heavier
+chassis combination has its own safe operating range, not the old one).
+
+### A second, subtler bus-hang bug: flooding I2C with redundant writes
+Once the motor could really move the car, the whole panel (and eventually the whole MCU
+program) would randomly freeze solid during a run — not merely a Modulino "stuck red"
+glitch as before, but no more sensor updates, no more Bridge.call responses, nothing.
+Root cause: the driving-state code was calling `motors.setSpeedA(...)` (an I2C write) and
+`(bool)motors` (an I2C read) on every single `loop()` iteration, thousands of times per
+second, even while idling — confirmed once the same `motors.setSpeedA(0)` call was found
+running unconditionally in the idle branch too. `Wire1`'s driver on this platform has no
+transaction timeout, so a bus glitch under that volume of redundant traffic could wedge the
+whole loop, not just one read. Fix: only write to the motor when its commanded state
+actually changes (or at most a fixed ~10 Hz), never unconditionally every cycle — the same
+lesson as the address-collision bug above, generalized: hardware I2C calls are not free, and
+code that runs every `loop()` iteration should treat them as a budget, not a formality.
+
+### The front distance sensor "sees the floor, not the wall"
+The center Modulino Distance sensor, used to detect the wall ahead at a corner, consistently
+read 25-160 mm even with meters of open corridor visible in the camera feed. Ruled out a bad
+sensor by testing in open air (correctly read ~2.4 m with nothing nearby) and by testing a
+finger at a known distance (correctly tracked it moving closer/further). The sensor itself
+was fine; mounted low and close to the floor, its beam has enough width that it also "sees"
+the mat a short, fixed distance ahead, and — because that phantom reading is closer than any
+real wall in a normal WRO corridor — it dominates the measurement. The exact noise floor
+also turned out to depend on the mat surface itself, not just mounting geometry (we measured
+a different baseline on a plain floor test vs. the actual competition mat). Separately, a
+spliced/heat-shrunk repair on the sensor's own cable (done because no longer spare cable was
+on hand) turned out to add real instability on top of the floor effect — re-doing that
+splice with proper soldered joints (not just twist plus heat-shrink) fixed it outright once
+isolated with a known-good cable for comparison.
+
+**Working mitigations, layered:** (1) fix the cable properly; (2) mount the sensor as high
+as the chassis reasonably allows and re-measure its "open corridor" baseline before trusting
+any threshold; (3) never hardcode a threshold — take one clean, hands-off reading on the
+actual mat first; (4) keep at least one independent backup signal (see below).
+
+### Backup corner-detection signals (camera line + lidar)
+Because the front distance sensor's reliability depends so much on mounting/mat specifics,
+two independent backups were added, both feeding the same `Bridge.call("camera_corner", ...)`
+hook the sketch already used for the distance-sensor trigger:
+- **Colour-line detection** (Python, OpenCV `inRange` on a bottom ROI of the camera frame)
+  — looks for the orange/blue corner-marking lines described in Part 1, debounced with a
+  cooldown.
+- **Lidar front-sector minimum** (`lidar.sector_min_mm(0, 15)`) — intended as a second,
+  higher-mounted distance check. In this build the LD19 turned out to be enclosed by nearby
+  chassis parts on all sides, not just blocked to the front, reading a constant close range
+  in every direction (confirmed identical on a desk and on the open track) — unlike the
+  original higher, thin single-point lidar mast design from Part 1, which gave a clean
+  360-degree room scan. Given the time left before competition, this was deprioritized in
+  favour of fixing the distance sensor's cable/mounting instead; revisiting the lidar mount
+  (elevated, clear on all sides, matching the original mast design) is the natural next step
+  for a more robust obstacle map.
+
+### Verification method that paid off repeatedly
+Whenever a bug could be "the chip," "the wiring," or "a software conflict," the fastest
+path was not more code changes to the full app — it was a new, minimal, isolated app that
+removes every variable except the one in question (`gyro-solo` for the Wire/Wire1 bug, a
+plain finger/known-distance test for the sensor). This consistently resolved ambiguous bugs
+faster than iterating on the full stack.

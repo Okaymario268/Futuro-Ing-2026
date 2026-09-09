@@ -1,5 +1,15 @@
 > 📂 **Source code** — Arduino sketch (C/C++) driving the servo & DC motor, and the Python Web UI for the camera and data handling.
 
+> [!NOTE]
+> This file documents the **original minimal servo-slider prototype**. The actual
+> competition code now includes the full Modulino ecosystem (Hub, Distance ×3, Buttons,
+> Motors), an MPU-6050 gyro, an LD19 lidar, and the wall-centering/corner-turn FSM — see
+> the **top-level [`README.md`](../README.md)** and
+> [`other/fabrication-challenges.md`](../other/fabrication-challenges.md) for the current
+> architecture. `sketch/sketch.ino` and `python/main.py` in this folder are kept up to date
+> with the real, currently-flashed program; the prototype description below is left as a
+> historical/learning reference and does not reflect their current contents line-for-line.
+
 # FuturoIng — Servo angle control with a web UI (Arduino UNO Q · App Lab)
 
 An **Arduino App Lab** app for the **Arduino UNO Q**. Drag a slider in your
