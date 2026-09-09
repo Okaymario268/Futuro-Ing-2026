@@ -392,11 +392,15 @@ specifications** are in the collapsible block below.
 
 <div align="center">
 
-| <img src="v-photos/front.jpeg" width="240" /> | <img src="v-photos/back.jpeg" width="240" /> | <img src="v-photos/left.jpeg" width="240" /> |
+| <img src="v-photos/front-2026-09.jpg" width="240" /> | <img src="v-photos/back-2026-09.jpg" width="240" /> | <img src="v-photos/left-2026-09.jpg" width="240" /> |
 |:--:|:--:|:--:|
 | **Front** | **Back** | **Left** |
-| <img src="v-photos/right.jpeg" width="240" /> | <img src="v-photos/top.jpeg" width="240" /> | <img src="v-photos/bottom.jpeg" width="240" /> |
+| <img src="v-photos/right-2026-09.jpg" width="240" /> | <img src="v-photos/top-2026-09.jpg" width="240" /> | <img src="v-photos/bottom-2026-09.jpg" width="240" /> |
 | **Right** | **Top** | **Bottom** |
+
+> [!NOTE]
+> Updated 2026-09 for the Modulino/gyro/lidar build. The original `front.jpeg`/`back.jpeg`/
+> etc. (first-build photos) are kept in this folder for reference, not deleted.
 
 </div>
 
